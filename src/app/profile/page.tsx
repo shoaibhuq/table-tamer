@@ -19,6 +19,8 @@ import {
   Save,
   X,
   LogOut,
+  Settings2,
+  ChevronDown,
 } from "lucide-react";
 
 export default function ProfilePage() {
@@ -37,6 +39,38 @@ export default function ProfilePage() {
     displayName: user?.displayName || "",
     phoneNumber: userProfile?.phoneNumber || "",
   });
+  const [namingType, setNamingType] = useState<
+    "numbers" | "letters" | "roman" | "custom-prefix" | "custom-names"
+  >(userProfile?.tableNamingPreferences?.type || "numbers");
+  const [customPrefix, setCustomPrefix] = useState(
+    userProfile?.tableNamingPreferences?.customPrefix || ""
+  );
+  const [savingPreferences, setSavingPreferences] = useState(false);
+
+  // Track original preferences to detect changes
+  const [originalNamingType] = useState(
+    userProfile?.tableNamingPreferences?.type || "numbers"
+  );
+  const [originalCustomPrefix] = useState(
+    userProfile?.tableNamingPreferences?.customPrefix || ""
+  );
+
+  // Table naming scheme options
+  const tableNamingOptions = [
+    { value: "numbers", label: "Numbers", example: "1, 2, 3, 4..." },
+    { value: "letters", label: "Letters", example: "A, B, C, D..." },
+    { value: "roman", label: "Roman Numerals", example: "I, II, III, IV..." },
+    {
+      value: "custom-prefix",
+      label: "Custom Prefix + Numbers",
+      example: "Table 1, Table 2...",
+    },
+    {
+      value: "custom-names",
+      label: "Custom Names",
+      example: "Main Table, VIP Table...",
+    },
+  ];
 
   const handleSave = async () => {
     if (!formData.displayName.trim()) {
@@ -69,9 +103,55 @@ export default function ProfilePage() {
       displayName: user?.displayName || "",
       phoneNumber: userProfile?.phoneNumber || "",
     });
+    setNamingType(userProfile?.tableNamingPreferences?.type || "numbers");
+    setCustomPrefix(userProfile?.tableNamingPreferences?.customPrefix || "");
     setIsEditing(false);
     setError("");
     setSuccess("");
+  };
+
+  // Check if naming preferences have changed
+  const hasNamingPreferencesChanged = () => {
+    const typeChanged = namingType !== originalNamingType;
+    const prefixChanged =
+      namingType === "custom-prefix"
+        ? customPrefix.trim() !== originalCustomPrefix
+        : false;
+
+    return typeChanged || prefixChanged;
+  };
+
+  const handleSaveNamingPreferences = async () => {
+    if (!updateUserProfile) return;
+
+    setSavingPreferences(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      // Build preferences object, only including customPrefix when needed
+      const preferences: {
+        type: typeof namingType;
+        customPrefix?: string;
+      } = {
+        type: namingType,
+      };
+
+      // Only add customPrefix if it's the custom-prefix type and has a value
+      if (namingType === "custom-prefix" && customPrefix.trim()) {
+        preferences.customPrefix = customPrefix.trim();
+      }
+
+      await updateUserProfile({
+        tableNamingPreferences: preferences,
+      });
+      setSuccess("Naming preferences saved successfully!");
+    } catch (error) {
+      console.error("Error saving naming preferences:", error);
+      setError("Failed to save naming preferences. Please try again.");
+    } finally {
+      setSavingPreferences(false);
+    }
   };
 
   const handleSendVerification = async () => {
@@ -337,6 +417,114 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Table Naming Preferences */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Settings2 className="mr-2 h-5 w-5" />
+              Table Naming Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-3 block">
+                  Choose how NEW tables should be named when creating tables in
+                  events
+                </label>
+                <p className="text-sm text-gray-500 mb-4">
+                  This setting will be used as your default when creating new
+                  tables. It does not affect existing tables in your events.
+                </p>
+
+                <div className="space-y-3">
+                  {tableNamingOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`
+                        flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-all
+                        ${
+                          namingType === option.value
+                            ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                        }
+                      `}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <input
+                          type="radio"
+                          name="tableNaming"
+                          value={option.value}
+                          checked={namingType === option.value}
+                          onChange={(e) =>
+                            setNamingType(e.target.value as typeof namingType)
+                          }
+                          className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                        />
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {option.label}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            Example: {option.example}
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronDown
+                        className={`w-4 h-4 text-gray-400 transition-transform ${
+                          namingType === option.value ? "rotate-180" : ""
+                        }`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Prefix Input */}
+              {namingType === "custom-prefix" && (
+                <div className="space-y-2 border-t pt-4">
+                  <label className="text-sm font-medium text-gray-700">
+                    Custom Prefix
+                  </label>
+                  <Input
+                    value={customPrefix}
+                    onChange={(e) => setCustomPrefix(e.target.value)}
+                    placeholder="Enter custom prefix (e.g., Table, Desk, Section)"
+                    className="max-w-xs"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Preview: {customPrefix || "Table"} 1,{" "}
+                    {customPrefix || "Table"} 2, etc.
+                  </p>
+                </div>
+              )}
+
+              {/* Save Preferences Button */}
+              <div className="border-t pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleSaveNamingPreferences}
+                  disabled={savingPreferences || !hasNamingPreferencesChanged()}
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  {savingPreferences ? "Saving..." : "Save Naming Preferences"}
+                </Button>
+                <p className="text-xs text-gray-500 mt-2">
+                  These preferences will be applied when creating new tables in
+                  events
+                </p>
+                {!hasNamingPreferencesChanged() && !savingPreferences && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    No changes to save
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Danger Zone */}
         <Card className="mt-6 border-red-200">

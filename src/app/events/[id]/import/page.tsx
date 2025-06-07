@@ -57,6 +57,7 @@ export default function GuestImportPage() {
   const [envError, setEnvError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Firebase is already initialized and working through the AuthContext
   // No need for additional environment variable checks
@@ -278,24 +279,59 @@ export default function GuestImportPage() {
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-
-      // Validate file size (max 10MB)
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        setError("File size must be less than 10MB.");
-        return;
-      }
-
-      // Validate file type
-      if (!selectedFile.name.toLowerCase().endsWith(".csv")) {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (
+        selectedFile.type !== "text/csv" &&
+        !selectedFile.name.endsWith(".csv")
+      ) {
         setError("Please select a CSV file.");
         return;
       }
-
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        // 10MB limit
+        setError("File size must be less than 10MB.");
+        return;
+      }
       setFile(selectedFile);
       setError(null);
-      setSuccess(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const droppedFile = files[0];
+      if (
+        droppedFile.type !== "text/csv" &&
+        !droppedFile.name.endsWith(".csv")
+      ) {
+        setError("Please select a CSV file.");
+        return;
+      }
+      if (droppedFile.size > 10 * 1024 * 1024) {
+        // 10MB limit
+        setError("File size must be less than 10MB.");
+        return;
+      }
+      setFile(droppedFile);
+      setError(null);
     }
   };
 
@@ -575,9 +611,18 @@ export default function GuestImportPage() {
           <p className="text-gray-600 mt-2">
             Upload a CSV file to import your guest list for this event
           </p>
+
+          {/* CSV Format info */}
+          <div className="text-sm text-gray-500 mt-4 p-3 bg-gray-50 rounded-md">
+            <p>
+              <strong>CSV Format:</strong> name, phoneNumber (optional)
+            </p>
+            <p>Example: John Doe, +1234567890</p>
+            <p className="text-xs mt-1">Maximum file size: 10MB</p>
+          </div>
         </div>
 
-        {/* Upload Section */}
+        {/* Enhanced Upload Section with Drag & Drop */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -586,6 +631,106 @@ export default function GuestImportPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Drag & Drop Zone */}
+            <div
+              className={`
+                relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-300
+                ${
+                  isDragOver
+                    ? "border-blue-400 bg-blue-50 scale-105 shadow-lg"
+                    : file
+                    ? "border-green-400 bg-green-50"
+                    : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                }
+              `}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              {isDragOver && (
+                <div className="absolute inset-0 bg-blue-100 rounded-lg flex items-center justify-center animate-pulse">
+                  <div className="text-blue-600 font-medium flex items-center">
+                    <Upload className="w-6 h-6 mr-2 animate-bounce" />
+                    Drop your CSV file here!
+                  </div>
+                </div>
+              )}
+
+              <div className={`space-y-4 ${isDragOver ? "opacity-50" : ""}`}>
+                <div
+                  className={`mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    file ? "bg-green-100 text-green-600" : "text-gray-400"
+                  }`}
+                >
+                  {file ? (
+                    <CheckCircle className="w-8 h-8" />
+                  ) : (
+                    <Upload className="w-8 h-8" />
+                  )}
+                </div>
+
+                {file ? (
+                  <div className="space-y-2">
+                    <p className="text-green-700 font-medium">
+                      ✅ File Selected
+                    </p>
+                    <p className="text-sm text-gray-600">{file.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-lg font-medium text-gray-700">
+                      Drop your CSV file here
+                    </p>
+                    <p className="text-gray-500">or click to browse files</p>
+                  </div>
+                )}
+
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  disabled={loadingRequest || fetchingGuests}
+                />
+
+                {!file && (
+                  <Button
+                    variant="outline"
+                    className="mt-4 pointer-events-none"
+                  >
+                    Choose CSV File
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Import Button */}
+            {file && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  onClick={handleImport}
+                  disabled={loadingRequest || fetchingGuests}
+                  className="px-8 py-3 text-lg"
+                  size="lg"
+                >
+                  {loadingRequest ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      Importing...
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5 mr-2" />
+                      Import CSV ({file.name})
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-md">
                 <div className="flex items-center justify-between">
@@ -623,36 +768,40 @@ export default function GuestImportPage() {
                 </div>
               </div>
             )}
-
-            <div className="flex items-center space-x-4">
-              <Input
-                type="file"
-                accept=".csv"
-                onChange={handleFileChange}
-                className="flex-1"
-                disabled={loadingRequest || fetchingGuests}
-              />
-              <Button
-                onClick={handleImport}
-                disabled={!file || loadingRequest || fetchingGuests}
-                className="shrink-0"
-              >
-                {loadingRequest ? "Importing..." : "Import CSV"}
-              </Button>
-            </div>
-
-            <div className="text-sm text-gray-500">
-              <p>
-                <strong>CSV Format:</strong> name, phoneNumber (optional)
-              </p>
-              <p>Example: John Doe, +1234567890</p>
-              <p className="text-xs mt-1">Maximum file size: 10MB</p>
-            </div>
           </CardContent>
         </Card>
 
-        {/* Guests List */}
-        {guests.length > 0 && (
+        {/* Guests List with scrollable content and skeleton loading */}
+        {fetchingGuests ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Loading Guests...</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {/* Skeleton Loaders */}
+                {[...Array(8)].map((_, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 border rounded-lg animate-pulse"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-4 h-4 bg-gray-200 rounded"></div>
+                      <div>
+                        <div className="h-4 bg-gray-200 rounded w-32 mb-1"></div>
+                        <div className="h-3 bg-gray-200 rounded w-24"></div>
+                      </div>
+                    </div>
+                    <div className="flex space-x-2">
+                      <div className="w-8 h-8 bg-gray-200 rounded"></div>
+                      <div className="w-8 h-8 bg-gray-200 rounded"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : guests.length > 0 ? (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -683,7 +832,8 @@ export default function GuestImportPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              {/* Scrollable guest list */}
+              <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
                 {guests.map((guest) => (
                   <div
                     key={guest.id}
@@ -751,10 +901,7 @@ export default function GuestImportPage() {
               </div>
             </CardContent>
           </Card>
-        )}
-
-        {/* Show empty state with retry option */}
-        {guests.length === 0 && !fetchingGuests && !error && (
+        ) : (
           <Card>
             <CardContent className="p-8 text-center">
               <p className="text-gray-500 mb-4">

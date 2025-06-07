@@ -16,10 +16,22 @@ import {
   RotateCcw,
   Clock,
   Edit,
+  FileText,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { authenticatedJsonFetch } from "@/lib/api";
+import { TableEditDialog } from "@/components/ui/table-edit-dialog";
+import { ThemeSelector } from "@/components/ui/theme-selector";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Guest {
   id: string;
@@ -27,13 +39,17 @@ interface Guest {
   phoneNumber: string | null;
   table: {
     id: string;
-    number: number;
+    name: string;
+    color: string;
+    capacity: number;
   } | null;
 }
 
 interface Table {
   id: string;
-  number: number;
+  name: string;
+  color: string;
+  capacity: number;
   guests: Guest[];
 }
 
@@ -41,6 +57,7 @@ interface Event {
   id: string;
   name: string;
   description: string | null;
+  theme?: string;
   createdAt: string | { seconds: number; nanoseconds: number };
   updatedAt: string | { seconds: number; nanoseconds: number };
   guests: Guest[];
@@ -63,6 +80,14 @@ export default function EventDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editingTable, setEditingTable] = useState<Table | null>(null);
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [renamingTables, setRenamingTables] = useState(false);
+  const [renameType, setRenameType] = useState<
+    "numbers" | "letters" | "roman" | "custom-prefix"
+  >("numbers");
+  const [renamePrefix, setRenamePrefix] = useState("Table");
 
   const fetchEvent = async () => {
     try {
@@ -193,6 +218,108 @@ export default function EventDetailPage() {
     }
   };
 
+  const handleUpdateTable = async (
+    tableId: string,
+    updates: { name?: string; color?: string; capacity?: number }
+  ) => {
+    try {
+      // Update locally first
+      setEvent((prevEvent) => {
+        if (!prevEvent) return prevEvent;
+        return {
+          ...prevEvent,
+          tables: prevEvent.tables.map((table) =>
+            table.id === tableId ? { ...table, ...updates } : table
+          ),
+        };
+      });
+
+      // Update in database
+      await authenticatedJsonFetch(`/api/tables/${tableId}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+
+      const updateTypes = Object.keys(updates);
+      const message =
+        updateTypes.length === 1
+          ? `Table ${updateTypes[0]} updated successfully!`
+          : "Table updated successfully!";
+
+      setSuccess(message);
+    } catch (error) {
+      console.error("Error updating table:", error);
+      setError("Failed to update table");
+
+      // Revert local change on error
+      await fetchEvent();
+    }
+  };
+
+  const handleThemeChange = async (themeId: string) => {
+    if (!event) return;
+
+    setThemeLoading(true);
+    setError(null);
+
+    try {
+      const data = (await authenticatedJsonFetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          theme: themeId,
+        }),
+      })) as { success: boolean; error?: string };
+
+      if (data.success) {
+        setSuccess("Theme updated successfully!");
+        await fetchEvent();
+      } else {
+        setError(data.error || "Failed to update theme.");
+      }
+    } catch (error) {
+      console.error("Error updating theme:", error);
+      setError("Failed to update theme.");
+    } finally {
+      setThemeLoading(false);
+    }
+  };
+
+  const handleRenameAllTables = async () => {
+    if (!event?.tables.length) return;
+
+    setRenamingTables(true);
+    setError(null);
+
+    try {
+      // Use the batch rename API endpoint for better performance
+      const data = (await authenticatedJsonFetch("/api/tables/batch-rename", {
+        method: "PATCH",
+        body: JSON.stringify({
+          eventId: eventId,
+          nameType: renameType,
+          customPrefix:
+            renameType === "custom-prefix" ? renamePrefix : undefined,
+        }),
+      })) as { success: boolean; message?: string; error?: string };
+
+      if (data.success) {
+        setSuccess(
+          data.message ||
+            `All tables renamed successfully using ${renameType} convention!`
+        );
+        setShowRenameDialog(false);
+        await fetchEvent();
+      } else {
+        setError(data.error || "Failed to rename tables.");
+      }
+    } catch (error) {
+      console.error("Error renaming tables:", error);
+      setError("Failed to rename tables. Please try again.");
+    } finally {
+      setRenamingTables(false);
+    }
+  };
+
   const formatDate = (
     dateValue: string | { seconds: number; nanoseconds: number }
   ) => {
@@ -233,10 +360,112 @@ export default function EventDetailPage() {
   if (loading) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading event...</p>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+          <div className="max-w-6xl mx-auto px-4">
+            {/* Header Skeleton */}
+            <div className="mb-8 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-32 mb-4"></div>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex-1">
+                  <div className="h-10 bg-gray-200 rounded w-3/4 mb-2"></div>
+                  <div className="h-5 bg-gray-200 rounded w-1/2 mb-2"></div>
+                  <div className="flex items-center gap-4">
+                    <div className="h-4 bg-gray-200 rounded w-40"></div>
+                    <div className="h-4 bg-gray-200 rounded w-40"></div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="h-9 w-16 bg-gray-200 rounded"></div>
+                  <div className="h-9 w-16 bg-gray-200 rounded"></div>
+                  <div className="h-9 w-20 bg-gray-200 rounded"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats Skeleton */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              {[...Array(4)].map((_, index) => (
+                <Card key={index}>
+                  <CardContent className="p-6 text-center animate-pulse">
+                    <div className="w-8 h-8 bg-gray-200 rounded mx-auto mb-2"></div>
+                    <div className="h-8 bg-gray-200 rounded w-8 mx-auto mb-1"></div>
+                    <div className="h-4 bg-gray-200 rounded w-20 mx-auto"></div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Quick Actions Skeleton */}
+            <Card className="mb-8">
+              <CardHeader>
+                <div className="h-6 bg-gray-200 rounded w-32 animate-pulse"></div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-4">
+                  {[...Array(4)].map((_, index) => (
+                    <div
+                      key={index}
+                      className="h-9 w-32 bg-gray-200 rounded animate-pulse"
+                    ></div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Tables and Guests Skeleton */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Tables Skeleton */}
+              <Card>
+                <CardHeader>
+                  <div className="h-6 bg-gray-200 rounded w-24 animate-pulse"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg animate-pulse"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-4 h-4 bg-gray-200 rounded-full"></div>
+                          <div>
+                            <div className="h-4 bg-gray-200 rounded w-20 mb-1"></div>
+                            <div className="h-3 bg-gray-200 rounded w-16"></div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-6 w-16 bg-gray-200 rounded"></div>
+                          <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Guests Skeleton */}
+              <Card>
+                <CardHeader>
+                  <div className="h-6 bg-gray-200 rounded w-24 animate-pulse"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {[...Array(5)].map((_, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg animate-pulse"
+                      >
+                        <div>
+                          <div className="h-4 bg-gray-200 rounded w-32 mb-1"></div>
+                          <div className="h-3 bg-gray-200 rounded w-24"></div>
+                        </div>
+                        <div className="h-6 w-20 bg-gray-200 rounded"></div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </AppLayout>
@@ -458,12 +687,30 @@ export default function EventDetailPage() {
                     </Button>
                   </Link>
                 )}
-                <Link href={`/events/${event.id}/guest-view`}>
+                <Link
+                  href={`/events/${event.id}/guest-view`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <Button variant="outline">
                     <Calendar className="w-4 h-4 mr-2" />
                     Guest View
                   </Button>
                 </Link>
+                <ThemeSelector
+                  currentTheme={event.theme || "cosmic-purple"}
+                  onThemeChange={handleThemeChange}
+                  loading={themeLoading}
+                />
+                {event.tables.length > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowRenameDialog(true)}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Rename All Tables
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -580,20 +827,39 @@ export default function EventDetailPage() {
               </CardHeader>
               <CardContent>
                 {event.tables.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
                     {event.tables.map((table) => (
                       <div
                         key={table.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border-l-4"
+                        style={{ borderLeftColor: table.color }}
                       >
-                        <div>
-                          <span className="font-medium">
-                            Table {table.number}
-                          </span>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-4 h-4 rounded-full"
+                            style={{ backgroundColor: table.color }}
+                          />
+                          <div>
+                            <span className="font-medium">{table.name}</span>
+                            <div className="text-sm text-gray-500">
+                              Capacity: {table.capacity}
+                            </div>
+                          </div>
                         </div>
-                        <Badge variant="secondary">
-                          {table.guests.length} guests
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">
+                            {table.guests.length} guests
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingTable(table)}
+                            className="h-8 w-8 p-0"
+                            title="Edit table"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -632,7 +898,12 @@ export default function EventDetailPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           {guest.table ? (
-                            <Badge>Table {guest.table.number}</Badge>
+                            <Badge
+                              className="border-l-2"
+                              style={{ borderLeftColor: guest.table.color }}
+                            >
+                              {guest.table.name}
+                            </Badge>
                           ) : (
                             <Badge variant="outline">Unassigned</Badge>
                           )}
@@ -650,6 +921,124 @@ export default function EventDetailPage() {
             </Card>
           </div>
         </div>
+
+        {/* Table Edit Dialog */}
+        {editingTable && (
+          <TableEditDialog
+            table={editingTable}
+            isOpen={!!editingTable}
+            onSave={handleUpdateTable}
+            onClose={() => setEditingTable(null)}
+          />
+        )}
+
+        {/* Table Rename Dialog */}
+        <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename All Tables</DialogTitle>
+              <DialogDescription>
+                Choose a naming convention to rename all existing tables at
+                once.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    value="numbers"
+                    checked={renameType === "numbers"}
+                    onChange={(e) =>
+                      setRenameType(e.target.value as typeof renameType)
+                    }
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-medium">Numbers</div>
+                    <div className="text-sm text-gray-500">1, 2, 3, 4...</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    value="letters"
+                    checked={renameType === "letters"}
+                    onChange={(e) =>
+                      setRenameType(e.target.value as typeof renameType)
+                    }
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-medium">Letters</div>
+                    <div className="text-sm text-gray-500">A, B, C, D...</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    value="roman"
+                    checked={renameType === "roman"}
+                    onChange={(e) =>
+                      setRenameType(e.target.value as typeof renameType)
+                    }
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-medium">Roman Numerals</div>
+                    <div className="text-sm text-gray-500">
+                      I, II, III, IV...
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    value="custom-prefix"
+                    checked={renameType === "custom-prefix"}
+                    onChange={(e) =>
+                      setRenameType(e.target.value as typeof renameType)
+                    }
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-medium">Custom Prefix + Numbers</div>
+                    <div className="text-sm text-gray-500">
+                      {renamePrefix} 1, {renamePrefix} 2...
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {renameType === "custom-prefix" && (
+                <div className="space-y-2 border-t pt-4">
+                  <label className="text-sm font-medium">Custom Prefix</label>
+                  <Input
+                    value={renamePrefix}
+                    onChange={(e) => setRenamePrefix(e.target.value)}
+                    placeholder="Enter prefix (e.g., Table, Desk, Section)"
+                  />
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowRenameDialog(false)}
+                disabled={renamingTables}
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleRenameAllTables} disabled={renamingTables}>
+                {renamingTables ? "Renaming..." : "Rename All Tables"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

@@ -24,6 +24,7 @@ export interface Event {
   id: string;
   name: string;
   description?: string | null;
+  theme?: string;
   userId: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -46,6 +47,7 @@ export interface Table {
   id: string;
   name: string;
   capacity: number;
+  color: string;
   eventId: string;
   userId: string;
   createdAt: Timestamp;
@@ -62,6 +64,18 @@ export interface UserSettings {
 
 // Event Operations
 export const eventService = {
+  async getPublic(eventId: string): Promise<Event | null> {
+    try {
+      const eventDoc = await getDoc(doc(db, "events", eventId));
+      if (eventDoc.exists()) {
+        return eventDoc.data() as Event;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error in eventService.getPublic:", error);
+      throw error;
+    }
+  },
   async create(
     userId: string,
     eventData: Omit<Event, "id" | "userId" | "createdAt" | "updatedAt">
@@ -210,6 +224,22 @@ export const eventService = {
 
 // Guest Operations
 export const guestService = {
+  async listPublic(eventId: string): Promise<Guest[]> {
+    try {
+      const q = query(
+        collection(db, "guests"),
+        where("eventId", "==", eventId),
+        orderBy("name", "asc")
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as Guest)
+      );
+    } catch (error) {
+      console.error("Error in guestService.listPublic:", error);
+      throw error;
+    }
+  },
   async create(
     userId: string,
     guestData: Omit<Guest, "id" | "userId" | "createdAt" | "updatedAt">
@@ -310,6 +340,22 @@ export const guestService = {
 
 // Table Operations
 export const tableService = {
+  async listPublic(eventId: string): Promise<Table[]> {
+    try {
+      const q = query(
+        collection(db, "tables"),
+        where("eventId", "==", eventId),
+        orderBy("createdAt", "asc")
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as Table)
+      );
+    } catch (error) {
+      console.error("Error in tableService.listPublic:", error);
+      throw error;
+    }
+  },
   async create(
     userId: string,
     tableData: Omit<Table, "id" | "userId" | "createdAt" | "updatedAt">

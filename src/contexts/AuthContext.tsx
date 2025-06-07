@@ -64,6 +64,10 @@ interface UserProfile {
     theme: "light" | "dark";
     language: string;
   };
+  tableNamingPreferences?: {
+    type: "numbers" | "letters" | "roman" | "custom-prefix" | "custom-names";
+    customPrefix?: string;
+  };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -159,7 +163,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         await setDoc(doc(db, "users", user.uid), profileData);
-        setUserProfile(profileData as UserProfile);
+
+        // Reload profile after creation to get proper typing
+        const newUserDoc = await getDoc(doc(db, "users", user.uid));
+        if (newUserDoc.exists()) {
+          setUserProfile(newUserDoc.data() as UserProfile);
+        }
       }
     } catch (error) {
       console.error("Error loading user profile:", error);

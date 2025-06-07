@@ -125,9 +125,10 @@ export async function PATCH(
     }
 
     const { id: eventId } = await params;
-    const { name, description } = await req.json();
+    const { name, description, theme } = await req.json();
 
-    if (!name || !name.trim()) {
+    // If updating name, validate it
+    if (name !== undefined && (!name || !name.trim())) {
       return NextResponse.json(
         { success: false, error: "Event name is required" },
         { status: 400 }
@@ -143,11 +144,24 @@ export async function PATCH(
       );
     }
 
+    // Prepare update data
+    const updateData: {
+      name?: string;
+      description?: string | null;
+      theme?: string;
+    } = {};
+    if (name !== undefined) {
+      updateData.name = name.trim();
+    }
+    if (description !== undefined) {
+      updateData.description = description?.trim() || null;
+    }
+    if (theme !== undefined) {
+      updateData.theme = theme;
+    }
+
     // Update the event
-    await eventService.update(userId, eventId, {
-      name: name.trim(),
-      description: description?.trim() || null,
-    });
+    await eventService.update(userId, eventId, updateData);
 
     const updatedEvent = await eventService.get(userId, eventId);
 
