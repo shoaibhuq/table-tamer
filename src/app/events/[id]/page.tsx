@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,7 +89,7 @@ export default function EventDetailPage() {
   >("numbers");
   const [renamePrefix, setRenamePrefix] = useState("Table");
 
-  const fetchEvent = async () => {
+  const fetchEvent = useCallback(async () => {
     try {
       const data = (await authenticatedJsonFetch(`/api/events/${eventId}`)) as {
         success: boolean;
@@ -109,13 +109,13 @@ export default function EventDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [eventId]);
 
   useEffect(() => {
     if (eventId) {
       fetchEvent();
     }
-  }, [eventId]);
+  }, [eventId, fetchEvent]);
 
   const handleDeleteEvent = async () => {
     if (!event) return;

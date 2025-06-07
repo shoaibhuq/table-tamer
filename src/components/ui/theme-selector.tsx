@@ -208,7 +208,7 @@ export function ThemeSelector({
             Guest View Themes
           </DialogTitle>
           <DialogDescription className="text-lg">
-            Choose a beautiful theme for your event's guest view page. Each
+            Choose a beautiful theme for your event&apos;s guest view page. Each
             theme includes accessibility features and stunning animations.
           </DialogDescription>
         </DialogHeader>
@@ -247,7 +247,7 @@ export function ThemeSelector({
                 </h4>
                 <p className="text-green-700 text-sm">
                   All themes include high contrast support, keyboard navigation,
-                  screen reader compatibility, and respect users' motion
+                  screen reader compatibility, and respect users&apos; motion
                   preferences. Animations can be disabled for users who prefer
                   reduced motion.
                 </p>

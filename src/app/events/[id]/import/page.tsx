@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/contexts/AuthContext";
-import { Guest } from "@/generated/prisma";
+import { Guest } from "@/lib/firestore";
 import { authenticatedJsonFetch, authenticatedFetch } from "@/lib/api";
 import {
   Upload,

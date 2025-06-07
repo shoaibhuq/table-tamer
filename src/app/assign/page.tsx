@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -353,7 +353,7 @@ function UnassignedGuestsArea({
   );
 }
 
-export default function AssignPage() {
+function AssignPageContent() {
   const { user, userProfile, loading: authLoading } = useAuth();
   const searchParams = useSearchParams();
   const eventIdParam = searchParams.get("eventId");
@@ -391,7 +391,7 @@ export default function AssignPage() {
     })
   );
 
-  const fetchTablesAndGuests = async () => {
+  const fetchTablesAndGuests = useCallback(async () => {
     try {
       const url = currentEventId
         ? `/api/tables?eventId=${currentEventId}`
@@ -428,13 +428,13 @@ export default function AssignPage() {
     } catch {
       setError("Failed to fetch data.");
     }
-  };
+  }, [currentEventId]);
 
   useEffect(() => {
     if (user && !authLoading) {
       fetchTablesAndGuests();
     }
-  }, [currentEventId, user, authLoading]);
+  }, [currentEventId, user, authLoading, fetchTablesAndGuests]);
 
   const handleCreateTables = () => {
     if (numTables < 1 || numTables > 50) {
@@ -1853,5 +1853,22 @@ export default function AssignPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function AssignPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading assign page...</p>
+          </div>
+        </div>
+      }
+    >
+      <AssignPageContent />
+    </Suspense>
   );
 }

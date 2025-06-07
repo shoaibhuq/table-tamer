@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,7 +70,7 @@ export default function EventGuestViewPage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const fetchEvent = async () => {
+  const fetchEvent = useCallback(async () => {
     try {
       setEventLoading(true);
       const response = await fetch(`/api/public/events/${eventId}`);
@@ -87,7 +87,7 @@ export default function EventGuestViewPage() {
     } finally {
       setEventLoading(false);
     }
-  };
+  }, [eventId]);
 
   const fetchSuggestions = async (query: string) => {
     if (query.length < 2) {
@@ -195,7 +195,7 @@ export default function EventGuestViewPage() {
         clearTimeout(suggestionsTimeoutRef.current);
       }
     };
-  }, [eventId]);
+  }, [eventId, fetchEvent]);
 
   if (eventLoading) {
     return (

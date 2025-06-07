@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { guestService } from "@/lib/firestore";
+import { verifyAuthToken } from "@/lib/firebase-admin";
 
 export async function PATCH(
   req: NextRequest,
@@ -9,6 +10,15 @@ export async function PATCH(
     const { id: guestId } = await params;
     const { name, phoneNumber } = await req.json();
 
+    // Verify authentication
+    const userId = await verifyAuthToken(req);
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     if (!name || name.trim() === "") {
       return NextResponse.json(
         { success: false, error: "Guest name is required" },
@@ -16,15 +26,15 @@ export async function PATCH(
       );
     }
 
-    const updatedGuest = await prisma.guest.update({
-      where: { id: guestId },
-      data: {
-        name: name.trim(),
-        phoneNumber: phoneNumber ? phoneNumber.trim() : null,
-      },
+    await guestService.update(userId, guestId, {
+      name: name.trim(),
+      phoneNumber: phoneNumber ? phoneNumber.trim() : null,
     });
 
-    return NextResponse.json({ success: true, guest: updatedGuest });
+    return NextResponse.json({
+      success: true,
+      message: "Guest updated successfully",
+    });
   } catch (error) {
     console.error("Error updating guest:", error);
     return NextResponse.json(
@@ -41,9 +51,16 @@ export async function DELETE(
   try {
     const { id: guestId } = await params;
 
-    await prisma.guest.delete({
-      where: { id: guestId },
-    });
+    // Verify authentication
+    const userId = await verifyAuthToken(req);
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    await guestService.delete(userId, [guestId]);
 
     return NextResponse.json({
       success: true,

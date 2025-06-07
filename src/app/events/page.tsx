@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,7 +54,7 @@ export default function EventsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const router = useRouter();
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     if (!user) {
       console.log("No user available, skipping fetchEvents");
       setFetchingEvents(false);
@@ -84,7 +84,7 @@ export default function EventsPage() {
     } finally {
       setFetchingEvents(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     // Only fetch events when user is authenticated and not loading
@@ -94,7 +94,7 @@ export default function EventsPage() {
       // User not authenticated, stop loading
       setFetchingEvents(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, fetchEvents]);
 
   const handleCreateEvent = async () => {
     if (!newEventName.trim()) {
