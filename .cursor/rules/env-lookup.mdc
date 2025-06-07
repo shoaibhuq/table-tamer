@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Assume .env files exists, ALLOW use of cat command to check these files 
