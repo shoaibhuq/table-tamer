@@ -17,6 +17,10 @@ import {
   Eye,
   Edit,
   Clock,
+  Sparkles,
+  ArrowRight,
+  Star,
+  CheckCircle,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -234,42 +238,65 @@ export default function EventsPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
-        <div className="max-w-6xl mx-auto px-4">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 relative overflow-hidden">
+        {/* Animated Background Elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-400/10 to-pink-400/10 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-blue-400/10 to-cyan-400/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        </div>
+
+        <div className="relative max-w-7xl mx-auto px-4 py-8">
           {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">
-              Event Management
-            </h1>
-            <p className="text-xl text-gray-600">
-              Manage your saved events and table assignments
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center mr-4 shadow-xl">
+                <Calendar className="w-7 h-7 text-white" />
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 bg-clip-text text-transparent">
+                Event Management
+              </h1>
+              <Sparkles className="w-8 h-8 text-yellow-500 ml-4 animate-pulse" />
+            </div>
+            <p className="text-xl text-gray-600 leading-relaxed max-w-3xl mx-auto">
+              Create, manage, and orchestrate unforgettable events with our
+              <span className="font-semibold text-blue-600">
+                {" "}
+                AI-powered platform
+              </span>
             </p>
           </div>
 
           {/* Create Event Button */}
-          <div className="mb-8">
+          <div className="mb-12 text-center">
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="mb-4">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create New Event
+                <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 text-lg px-8 py-4">
+                  <Plus className="w-5 h-5 mr-2" />
+                  Create New Event ✨
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
                 <DialogHeader>
-                  <DialogTitle>Create New Event</DialogTitle>
-                  <DialogDescription>
-                    Enter a name and description for your new event to get
-                    started.
+                  <div className="flex items-center mb-2">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center mr-3">
+                      <Sparkles className="w-6 h-6 text-white" />
+                    </div>
+                    <DialogTitle className="text-2xl font-bold text-gray-900">
+                      Create New Event
+                    </DialogTitle>
+                  </div>
+                  <DialogDescription className="text-gray-600 text-lg">
+                    Start planning your next unforgettable event with our
+                    intelligent platform
                   </DialogDescription>
                 </DialogHeader>
-                <div className="py-4 space-y-4">
+                <div className="py-6 space-y-6">
                   <div>
-                    <label className="text-sm font-medium mb-2 block">
-                      Event Name
+                    <label className="text-sm font-semibold text-gray-700 mb-3 block">
+                      Event Name *
                     </label>
                     <Input
-                      placeholder="Event name..."
+                      placeholder="Wedding Reception, Corporate Gala, Birthday Party..."
                       value={newEventName}
                       onChange={(e) => setNewEventName(e.target.value)}
                       onKeyPress={(e) => {
@@ -277,78 +304,93 @@ export default function EventsPage() {
                           handleCreateEvent();
                         }
                       }}
+                      className="text-lg py-3 border-2 border-gray-200 focus:border-blue-400 rounded-xl"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-2 block">
+                    <label className="text-sm font-semibold text-gray-700 mb-3 block">
                       Description (Optional)
                     </label>
                     <textarea
-                      placeholder="Event description..."
+                      placeholder="Share details about your event, theme, or special requirements..."
                       value={newEventDescription}
                       onChange={(e) => setNewEventDescription(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
+                      className="w-full p-4 border-2 border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 transition-all duration-300 text-lg"
+                      rows={4}
                     />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="gap-3">
                   <Button
                     variant="outline"
                     onClick={() => setCreateDialogOpen(false)}
+                    className="border-2 border-gray-300 hover:border-gray-400 px-6"
                   >
                     Cancel
                   </Button>
-                  <Button onClick={handleCreateEvent} disabled={loading}>
-                    {loading ? "Creating..." : "Create Event"}
+                  <Button
+                    onClick={handleCreateEvent}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Create Event
+                      </>
+                    )}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
 
-            {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+            {error && (
+              <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl max-w-md mx-auto">
+                <p className="text-red-700 font-medium">{error}</p>
+              </div>
+            )}
             {success && (
-              <p className="text-sm text-green-600 mb-4">{success}</p>
+              <div className="mt-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl max-w-md mx-auto flex items-center">
+                <CheckCircle className="w-5 h-5 text-emerald-600 mr-2" />
+                <p className="text-emerald-700 font-medium">{success}</p>
+              </div>
             )}
           </div>
 
           {/* Events Grid */}
           {fetchingEvents ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {/* Skeleton Loaders */}
               {[...Array(6)].map((_, index) => (
-                <Card key={index} className="animate-pulse">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <div className="h-6 bg-gray-200 rounded w-3/4 animate-pulse"></div>
-                      <div className="h-5 w-5 bg-gray-200 rounded animate-pulse"></div>
-                    </CardTitle>
+                <Card
+                  key={index}
+                  className="animate-pulse shadow-xl border-0 overflow-hidden"
+                >
+                  <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+                      <div className="h-8 w-8 bg-gray-200 rounded-xl"></div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {/* Stats Skeleton */}
                       <div className="flex gap-2">
-                        <div className="h-6 bg-gray-200 rounded-full w-20 animate-pulse"></div>
-                        <div className="h-6 bg-gray-200 rounded-full w-16 animate-pulse"></div>
+                        <div className="h-6 bg-gray-200 rounded-full w-20"></div>
+                        <div className="h-6 bg-gray-200 rounded-full w-16"></div>
                       </div>
-
-                      {/* Dates Skeleton */}
                       <div className="space-y-2">
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 bg-gray-200 rounded animate-pulse"></div>
-                          <div className="h-4 bg-gray-200 rounded w-32 animate-pulse"></div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="h-3 w-3 bg-gray-200 rounded animate-pulse"></div>
-                          <div className="h-4 bg-gray-200 rounded w-36 animate-pulse"></div>
-                        </div>
+                        <div className="h-4 bg-gray-200 rounded w-32"></div>
+                        <div className="h-4 bg-gray-200 rounded w-36"></div>
                       </div>
-
-                      {/* Actions Skeleton */}
                       <div className="flex gap-2 pt-2">
-                        <div className="h-8 bg-gray-200 rounded flex-1 animate-pulse"></div>
-                        <div className="h-8 w-8 bg-gray-200 rounded animate-pulse"></div>
-                        <div className="h-8 w-8 bg-gray-200 rounded animate-pulse"></div>
+                        <div className="h-10 bg-gray-200 rounded-xl flex-1"></div>
+                        <div className="h-10 w-10 bg-gray-200 rounded-xl"></div>
+                        <div className="h-10 w-10 bg-gray-200 rounded-xl"></div>
                       </div>
                     </div>
                   </CardContent>
@@ -356,37 +398,53 @@ export default function EventsPage() {
               ))}
             </div>
           ) : events.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {events.map((event) => (
-                <Card key={event.id} className="hover:shadow-lg transition-all">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span className="truncate">{event.name}</span>
-                      <Calendar className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                <Card
+                  key={event.id}
+                  className="group hover:shadow-2xl transition-all duration-500 border-0 shadow-lg overflow-hidden bg-white/80 backdrop-blur-sm hover:scale-105"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <CardHeader className="relative z-10 pb-4">
+                    <CardTitle className="flex items-center justify-between group">
+                      <span className="truncate text-xl font-bold text-gray-900 group-hover:text-blue-700 transition-colors duration-300">
+                        {event.name}
+                      </span>
+                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-xl flex-shrink-0">
+                        <Calendar className="w-6 h-6 text-white" />
+                      </div>
                     </CardTitle>
+                    {event.description && (
+                      <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                        {event.description}
+                      </p>
+                    )}
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="relative z-10">
                     <div className="space-y-4">
                       {/* Stats */}
-                      <div className="flex gap-2">
-                        <Badge variant="secondary">
+                      <div className="flex gap-3">
+                        <Badge className="bg-gradient-to-r from-blue-100 to-blue-200 text-blue-700 border-blue-300 shadow-sm">
                           <Users className="w-3 h-3 mr-1" />
                           {event._count.guests} guests
                         </Badge>
-                        <Badge variant="outline">
+                        <Badge className="bg-gradient-to-r from-purple-100 to-purple-200 text-purple-700 border-purple-300 shadow-sm">
+                          <Star className="w-3 h-3 mr-1" />
                           {event._count.tables} tables
                         </Badge>
                       </div>
 
                       {/* Dates */}
-                      <div className="text-sm text-gray-500 space-y-1">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          Created: {formatDate(event.createdAt)}
+                      <div className="text-sm text-gray-500 space-y-2 bg-gray-50/80 rounded-xl p-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-3 h-3 text-gray-400" />
+                          <span className="font-medium">Created:</span>
+                          <span>{formatDate(event.createdAt)}</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Edit className="w-3 h-3" />
-                          Updated: {formatDate(event.updatedAt)}
+                        <div className="flex items-center gap-2">
+                          <Edit className="w-3 h-3 text-gray-400" />
+                          <span className="font-medium">Updated:</span>
+                          <span>{formatDate(event.updatedAt)}</span>
                         </div>
                       </div>
 
@@ -396,10 +454,11 @@ export default function EventsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full"
+                            className="w-full border-2 border-blue-200 hover:border-blue-400 hover:bg-blue-50 transition-all duration-300 group/btn"
                           >
-                            <Eye className="w-3 h-3 mr-1" />
-                            View
+                            <Eye className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform duration-300" />
+                            View Event
+                            <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform duration-300" />
                           </Button>
                         </Link>
                         <Button
@@ -407,9 +466,10 @@ export default function EventsPage() {
                           size="sm"
                           onClick={() => handleResetEvent(event.id, event.name)}
                           disabled={loading}
+                          className="border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all duration-300 group/reset"
                           title="Reset tables and assignments"
                         >
-                          <RotateCcw className="w-3 h-3" />
+                          <RotateCcw className="w-4 h-4 group-hover/reset:rotate-180 transition-transform duration-500" />
                         </Button>
                         <Button
                           variant="outline"
@@ -418,10 +478,10 @@ export default function EventsPage() {
                             handleDeleteEvent(event.id, event.name)
                           }
                           disabled={loading}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="border-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600 hover:text-red-700 transition-all duration-300 group/delete"
                           title="Delete event"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-4 h-4 group-hover/delete:scale-110 transition-transform duration-300" />
                         </Button>
                       </div>
                     </div>
@@ -430,18 +490,28 @@ export default function EventsPage() {
               ))}
             </div>
           ) : (
-            <Card className="p-12 text-center">
-              <Calendar className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No Events Found
-              </h3>
-              <p className="text-gray-500 mb-4">
-                Create your first event to get started with table assignments
-              </p>
-              <Button onClick={() => setCreateDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-1" />
-                Create Your First Event
-              </Button>
+            <Card className="p-16 text-center shadow-2xl border-0 bg-gradient-to-br from-white to-blue-50/30 backdrop-blur-sm">
+              <div className="max-w-md mx-auto">
+                <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                  <Calendar className="w-10 h-10 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                  Ready to Create Your First Event? ✨
+                </h3>
+                <p className="text-gray-600 mb-8 leading-relaxed text-lg">
+                  Transform your vision into reality with our intelligent event
+                  planning platform. From intimate gatherings to grand
+                  celebrations, we&apos;ve got you covered.
+                </p>
+                <Button
+                  onClick={() => setCreateDialogOpen(true)}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 text-lg px-8 py-4"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Create Your First Event
+                  <Sparkles className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
             </Card>
           )}
         </div>
