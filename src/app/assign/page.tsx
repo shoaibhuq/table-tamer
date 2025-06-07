@@ -51,6 +51,8 @@ interface DraggableGuestProps {
   isSelected?: boolean;
   onUnassign?: (guestId: string) => void;
   onSelect?: (guestId: string, isSelected: boolean) => void;
+  onClick?: (guestId: string) => void;
+  showClickHint?: boolean;
 }
 
 function DraggableGuest({
@@ -59,6 +61,8 @@ function DraggableGuest({
   isSelected = false,
   onUnassign,
   onSelect,
+  onClick,
+  showClickHint = false,
 }: DraggableGuestProps) {
   const { setNodeRef, transform, transition, listeners, attributes } =
     useSortable({
@@ -78,11 +82,13 @@ function DraggableGuest({
       style={style}
       className={`
         p-2 mb-2 bg-white border-1 rounded-lg shadow-sm 
-        guest-card-hover drag-smooth relative cursor-grab active:cursor-grabbing group
+        guest-card-hover drag-smooth relative group transition-all duration-200
         ${
           isSelected
-            ? "border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 ring-2 ring-blue-300 shadow-md"
-            : "border-gray-200 hover:border-blue-300 hover:shadow-lg"
+            ? "border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 ring-2 ring-blue-300 shadow-md cursor-pointer"
+            : onClick
+            ? "border-gray-200 hover:border-blue-300 hover:shadow-lg cursor-pointer hover:bg-blue-50"
+            : "border-gray-200 hover:border-blue-300 hover:shadow-lg cursor-grab active:cursor-grabbing"
         }
         ${
           isDragging
@@ -90,8 +96,8 @@ function DraggableGuest({
             : "hover:-translate-y-0.5"
         }
       `}
-      {...attributes}
-      {...listeners}
+      onClick={() => onClick && onClick(guest.id)}
+      {...(onClick ? {} : { ...attributes, ...listeners })}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 flex-1">
@@ -132,6 +138,11 @@ function DraggableGuest({
           {isSelected && (
             <div className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
               Selected
+            </div>
+          )}
+          {showClickHint && !isSelected && (
+            <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+              Click to select
             </div>
           )}
           {onUnassign && (
@@ -304,12 +315,16 @@ interface UnassignedGuestsAreaProps {
   unassignedGuests: Guest[];
   selectedGuests: Set<string>;
   onSelectGuest: (guestId: string, isSelected: boolean) => void;
+  onClickGuest?: (guestId: string) => void;
+  showClickHints?: boolean;
 }
 
 function UnassignedGuestsArea({
   unassignedGuests,
   selectedGuests,
   onSelectGuest,
+  onClickGuest,
+  showClickHints = false,
 }: UnassignedGuestsAreaProps) {
   const { setNodeRef, isOver } = useDroppable({ id: "unassigned" });
 
@@ -340,6 +355,8 @@ function UnassignedGuestsArea({
             guest={guest}
             isSelected={selectedGuests.has(guest.id)}
             onSelect={onSelectGuest}
+            onClick={onClickGuest}
+            showClickHint={showClickHints}
           />
         ))}
       </SortableContext>
@@ -589,12 +606,18 @@ function AssignPageContent() {
   };
 
   const handleSendSms = async () => {
+    if (!currentEventId) {
+      setError("No event selected");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
       const data = (await authenticatedJsonFetch("/api/send-sms", {
         method: "POST",
+        body: JSON.stringify({ eventId: currentEventId }),
       })) as {
         success: boolean;
         error?: string;
@@ -1038,6 +1061,12 @@ function AssignPageContent() {
       newSelection.delete(guestId);
     }
     setSelectedGuests(newSelection);
+  };
+
+  const handleClickGuest = (guestId: string) => {
+    // Simply toggle selection when clicking a guest
+    const isCurrentlySelected = selectedGuests.has(guestId);
+    handleSelectGuest(guestId, !isCurrentlySelected);
   };
 
   const handleSelectAllUnassigned = () => {
@@ -1731,7 +1760,8 @@ function AssignPageContent() {
                                   {selectedGuests.size} selected
                                 </Badge>
                                 <span className="text-xs text-gray-500">
-                                  Drag to assign multiple guests
+                                  Click guests to select, then click table
+                                  &ldquo;Assign Selected&rdquo; button
                                 </span>
                               </>
                             )}
@@ -1750,6 +1780,8 @@ function AssignPageContent() {
                             unassignedGuests={filteredUnassignedGuests}
                             selectedGuests={selectedGuests}
                             onSelectGuest={handleSelectGuest}
+                            onClickGuest={handleClickGuest}
+                            showClickHints={unassignedGuests.length > 0}
                           />
                         </div>
                       </CardContent>

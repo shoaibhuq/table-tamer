@@ -1,973 +1,680 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useParams } from "next/navigation";
+import { useState } from "react";
+import { use } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useAuth } from "@/contexts/AuthContext";
-import { Guest } from "@/lib/firestore";
-import { authenticatedJsonFetch, authenticatedFetch } from "@/lib/api";
+import { authenticatedJsonFetch } from "@/lib/api";
 import {
   Upload,
-  ArrowRight,
+  FileSpreadsheet,
+  Wand2,
   CheckCircle,
-  Edit,
-  Trash2,
-  ArrowLeft,
+  AlertCircle,
+  Users,
+  ArrowRight,
+  X,
+  Check,
+  UserPlus,
+  FileText,
+  Sparkles,
+  Mail,
+  Phone,
+  User,
 } from "lucide-react";
-import Link from "next/link";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
+import { Checkbox } from "@/components/ui/checkbox";
 
-interface EditGuestData {
+interface ProcessedGuest {
   name: string;
-  phoneNumber: string;
+  phoneNumber?: string;
+  email?: string;
+  groupInfo?: string;
+  selected?: boolean;
 }
 
-export default function GuestImportPage() {
-  const { user, loading, authError } = useAuth();
+interface GuestGroup {
+  id: string;
+  name: string;
+  members: string[];
+  suggestedTableSize?: number;
+  selected?: boolean;
+}
+
+interface ImportResponse {
+  success: boolean;
+  processedGuests?: ProcessedGuest[];
+  detectedGroups?: GuestGroup[];
+  hasGroups?: boolean;
+  groupIndicators?: {
+    hasGroups: boolean;
+    groupType: string | null;
+    description: string;
+  };
+  fileInfo?: {
+    name: string;
+    size: number;
+    type: string;
+  };
+  message?: string;
+  error?: string;
+}
+
+export default function ImportGuestsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const router = useRouter();
-  const params = useParams();
-  const eventId = params.id as string;
-
+  const resolvedParams = use(params);
   const [file, setFile] = useState<File | null>(null);
-  const [loadingRequest, setLoadingRequest] = useState(false);
-  const [fetchingGuests, setFetchingGuests] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState("");
+  const [uploadResult, setUploadResult] = useState<ImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [guests, setGuests] = useState<Guest[]>([]);
-  const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
-  const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editData, setEditData] = useState<EditGuestData>({
-    name: "",
-    phoneNumber: "",
-  });
-  const [retryCount, setRetryCount] = useState(0);
-  const [envError, setEnvError] = useState<string | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const isFetchingRef = useRef(false);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [processedGuests, setProcessedGuests] = useState<ProcessedGuest[]>([]);
+  const [detectedGroups, setDetectedGroups] = useState<GuestGroup[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  // Firebase is already initialized and working through the AuthContext
-  // No need for additional environment variable checks
-
-  // Check for auth errors from Firebase initialization
-  useEffect(() => {
-    if (authError) {
-      setEnvError(authError);
-    }
-  }, [authError]);
-
-  // Enhanced error handling function
-  const handleApiError = (error: unknown, response?: Response): string => {
-    console.error("API Error:", error);
-
-    // Check for environment-related errors
-    if (response?.status === 500) {
-      return "Server configuration error. Please check your environment variables and database connection.";
-    }
-
-    if (response?.status === 503) {
-      return "Service temporarily unavailable. This might be due to database connection issues.";
-    }
-
-    if (error instanceof Error) {
-      // Check for Firebase-specific errors
-      if (
-        error.message.includes("Firebase") ||
-        error.message.includes("firebase")
-      ) {
-        return "Firebase configuration error. Please check your Firebase environment variables.";
-      }
-
-      // Check for database connection errors
-      if (
-        error.message.includes("ECONNREFUSED") ||
-        error.message.includes("getaddrinfo ENOTFOUND")
-      ) {
-        return "Database connection failed. Please check your DATABASE_URL environment variable.";
-      }
-
-      // Check for authentication errors
-      if (
-        error.message.includes("JWT") ||
-        error.message.includes("authentication")
-      ) {
-        return "Authentication configuration error. Please check your JWT_SECRET environment variable.";
-      }
-
-      // Check for missing API keys
-      if (
-        error.message.includes("API key") ||
-        error.message.includes("unauthorized")
-      ) {
-        return "API key configuration error. Please check your environment variables.";
-      }
-
-      return error.message;
-    }
-
-    return "Unknown error occurred";
-  };
-
-  // Redirect to events if not authenticated
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push("/events");
-    }
-  }, [user, loading, router]);
-
-  // Cleanup function to abort ongoing requests
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Fetch with timeout utility
-
-  const fetchGuests = useCallback(
-    async (retryAttempt: number = 0) => {
-      // Prevent multiple simultaneous requests
-      if (isFetchingRef.current) return;
-
-      // Don't fetch if there's an auth error
-      if (envError) {
-        setError(envError);
-        return;
-      }
-
-      // Use a ref to track if we're already fetching to prevent race conditions
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      abortControllerRef.current = new AbortController();
-
-      isFetchingRef.current = true;
-      setFetchingGuests(true);
-      setError(null);
-
-      try {
-        const data = (await authenticatedJsonFetch(
-          `/api/guests?eventId=${eventId}`
-        )) as {
-          success: boolean;
-          guests?: Guest[];
-          error?: string;
-        };
-
-        // Check for API-level environment errors
-        if (!data.success && data.error) {
-          if (
-            data.error.includes("DATABASE_URL") ||
-            data.error.includes("connection") ||
-            data.error.includes("environment") ||
-            data.error.includes("configuration")
-          ) {
-            throw new Error(`Configuration Error: ${data.error}`);
-          }
-        }
-
-        if (data.success && Array.isArray(data.guests)) {
-          setGuests(data.guests);
-          setRetryCount(0); // Reset retry count on success
-        } else {
-          throw new Error("Invalid data format received from server");
-        }
-      } catch (error) {
-        console.error("Error fetching guests:", error);
-
-        if (error instanceof Error && error.name === "AbortError") {
-          // Request was aborted, don't show error
-          return;
-        }
-
-        const errorMessage = handleApiError(error);
-
-        // Don't retry configuration errors
-        if (
-          errorMessage.includes("Configuration Error") ||
-          errorMessage.includes("environment") ||
-          errorMessage.includes("DATABASE_URL") ||
-          errorMessage.includes("JWT_SECRET")
-        ) {
-          setError(`Failed to load guests: ${errorMessage}`);
-          setGuests([]);
-          return;
-        }
-
-        // Retry logic for network errors (max 3 attempts)
-        if (
-          retryAttempt < 2 &&
-          (errorMessage.includes("fetch") ||
-            errorMessage.includes("network") ||
-            errorMessage.includes("timeout"))
-        ) {
-          console.log(`Retrying fetch attempt ${retryAttempt + 1}`);
-          setRetryCount(retryAttempt + 1);
-          setTimeout(() => {
-            fetchGuests(retryAttempt + 1);
-          }, 1000 * (retryAttempt + 1)); // Exponential backoff
-          return;
-        }
-
-        setError(`Failed to load guests: ${errorMessage}`);
-        setGuests([]);
-      } finally {
-        isFetchingRef.current = false;
-        setFetchingGuests(false);
-      }
-    },
-    [eventId, envError]
-  );
-
-  useEffect(() => {
-    if (user && eventId) {
-      fetchGuests();
-    }
-  }, [user, eventId, fetchGuests]);
-
-  // Show loading while authenticating
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show auth error screen if there's a Firebase auth error
-  if (envError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Card className="max-w-lg">
-          <CardHeader>
-            <CardTitle className="text-red-600">Authentication Error</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-700 mb-4">{envError}</p>
-            <Button
-              onClick={() => window.location.reload()}
-              className="mt-4 w-full"
-            >
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null; // Will redirect to login
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (
-        selectedFile.type !== "text/csv" &&
-        !selectedFile.name.endsWith(".csv")
-      ) {
-        setError("Please select a CSV file.");
-        return;
-      }
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        // 10MB limit
-        setError("File size must be less than 10MB.");
-        return;
-      }
-      setFile(selectedFile);
-      setError(null);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragOver(false);
+    setDragActive(false);
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      const droppedFile = files[0];
-      if (
-        droppedFile.type !== "text/csv" &&
-        !droppedFile.name.endsWith(".csv")
-      ) {
-        setError("Please select a CSV file.");
-        return;
-      }
-      if (droppedFile.size > 10 * 1024 * 1024) {
-        // 10MB limit
-        setError("File size must be less than 10MB.");
-        return;
-      }
-      setFile(droppedFile);
-      setError(null);
+      handleFileSelect(files[0]);
     }
   };
 
-  const handleImport = async () => {
-    if (!file) {
-      setError("Please select a file to import.");
+  const handleFileSelect = (selectedFile: File) => {
+    const allowedTypes = [".csv", ".xlsx", ".xls"];
+    const fileName = selectedFile.name.toLowerCase();
+    const isValidType = allowedTypes.some((type) => fileName.endsWith(type));
+
+    if (!isValidType) {
+      setError("Please select a CSV or Excel file (.csv, .xlsx, .xls)");
       return;
     }
 
-    setLoadingRequest(true);
-    setError(null);
-    setSuccess(null);
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError("File size must be less than 10MB");
+      return;
+    }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("eventId", eventId);
+    setFile(selectedFile);
+    setError(null);
+    setUploadResult(null);
+    setProcessedGuests([]);
+    setDetectedGroups([]);
+  };
+
+  const handleFileUpload = async () => {
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+    setUploadStage("Uploading file...");
 
     try {
-      // Use authenticatedFetch for file upload (FormData)
-      const response = await authenticatedFetch("/api/import", {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("eventId", resolvedParams.id);
+
+      // Simulate processing stages
+      setTimeout(() => {
+        setUploadStage("Analyzing file structure with AI...");
+      }, 1000);
+
+      const response = (await authenticatedJsonFetch("/api/import", {
         method: "POST",
         body: formData,
-        headers: {
-          // Don't set Content-Type, let browser set it for FormData
-        },
-      });
+      })) as ImportResponse;
 
-      if (!response.ok) {
-        const errorMessage = handleApiError(
-          new Error(`HTTP ${response.status}`),
-          response
+      setUploadStage("Processing complete!");
+
+      if (response.success) {
+        setUploadResult(response);
+        // Initialize selection state
+        const guestsWithSelection = (response.processedGuests || []).map(
+          (guest) => ({
+            ...guest,
+            selected: true, // Default all guests to selected
+          })
         );
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-
-      // Check for environment-related errors in the response
-      if (!data.success && data.error) {
-        if (
-          data.error.includes("DATABASE_URL") ||
-          data.error.includes("connection") ||
-          data.error.includes("environment") ||
-          data.error.includes("configuration")
-        ) {
-          throw new Error(`Configuration Error: ${data.error}`);
-        }
-      }
-
-      if (data.success) {
-        setSuccess(
-          `Successfully imported ${data.imported || 0} guests${
-            data.skipped ? ` (${data.skipped} duplicates skipped)` : ""
-          }!`
+        const groupsWithSelection = (response.detectedGroups || []).map(
+          (group) => ({
+            ...group,
+            selected: true, // Default all groups to selected
+          })
         );
-        await fetchGuests();
-        setFile(null);
-        // Reset file input
-        const fileInput = document.querySelector(
-          'input[type="file"]'
-        ) as HTMLInputElement;
-        if (fileInput) fileInput.value = "";
+
+        setProcessedGuests(guestsWithSelection);
+        setDetectedGroups(groupsWithSelection);
       } else {
-        setError(data.error || "Failed to import guests.");
+        setError(response.error || "Failed to process file");
       }
-    } catch (error) {
-      console.error("Import error:", error);
-      const errorMessage = handleApiError(error);
-      setError(`Import failed: ${errorMessage}`);
+    } catch (err) {
+      console.error("Upload error:", err);
+      setError(err instanceof Error ? err.message : "Failed to process file");
     } finally {
-      setLoadingRequest(false);
+      setUploading(false);
+      setUploadStage("");
     }
   };
 
-  const handleSelectGuest = (guestId: string) => {
-    const newSelected = new Set(selectedGuests);
-    if (newSelected.has(guestId)) {
-      newSelected.delete(guestId);
-    } else {
-      newSelected.add(guestId);
-    }
-    setSelectedGuests(newSelected);
-  };
+  const handleSaveGuests = async () => {
+    const selectedGuests = processedGuests.filter((guest) => guest.selected);
+    const selectedGroups = detectedGroups.filter((group) => group.selected);
 
-  const handleSelectAll = () => {
-    if (selectedGuests.size === guests.length) {
-      setSelectedGuests(new Set());
-    } else {
-      setSelectedGuests(new Set(guests.map((g) => g.id)));
-    }
-  };
-
-  const handleEditGuest = (guest: Guest) => {
-    setEditingGuest(guest);
-    setEditData({
-      name: guest.name,
-      phoneNumber: guest.phoneNumber || "",
-    });
-    setEditDialogOpen(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingGuest) return;
-
-    if (!editData.name.trim()) {
-      setError("Guest name is required.");
+    if (selectedGuests.length === 0) {
+      setError("Please select at least one guest to import");
       return;
     }
 
-    setLoadingRequest(true);
+    setSaving(true);
     setError(null);
 
     try {
-      const data = (await authenticatedJsonFetch(
-        `/api/guests/${editingGuest.id}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            name: editData.name.trim(),
-            phoneNumber: editData.phoneNumber.trim() || null,
-          }),
-        }
-      )) as {
-        success: boolean;
-        guest?: Guest;
-        error?: string;
-      };
-
-      // Check for environment-related errors
-      if (!data.success && data.error) {
-        if (
-          data.error.includes("DATABASE_URL") ||
-          data.error.includes("connection") ||
-          data.error.includes("environment") ||
-          data.error.includes("configuration")
-        ) {
-          throw new Error(`Configuration Error: ${data.error}`);
-        }
-      }
-
-      if (data.success) {
-        setSuccess("Guest updated successfully!");
-        await fetchGuests();
-        setEditDialogOpen(false);
-        setEditingGuest(null);
-      } else {
-        setError(data.error || "Failed to update guest.");
-      }
-    } catch (error) {
-      console.error("Update error:", error);
-      const errorMessage = handleApiError(error);
-      setError(`Update failed: ${errorMessage}`);
-    } finally {
-      setLoadingRequest(false);
-    }
-  };
-
-  const handleDeleteSelected = async () => {
-    if (selectedGuests.size === 0) {
-      setError("Please select guests to delete.");
-      return;
-    }
-
-    if (
-      !confirm(
-        `Are you sure you want to delete ${selectedGuests.size} selected guest(s)?`
-      )
-    ) {
-      return;
-    }
-
-    setLoadingRequest(true);
-    setError(null);
-
-    try {
-      const data = (await authenticatedJsonFetch("/api/guests/bulk-delete", {
-        method: "DELETE",
+      const response = (await authenticatedJsonFetch("/api/import/save", {
+        method: "POST",
         body: JSON.stringify({
-          guestIds: Array.from(selectedGuests),
+          eventId: resolvedParams.id,
+          guests: selectedGuests,
+          groups: selectedGroups,
         }),
-      })) as {
-        success: boolean;
-        error?: string;
-      };
+      })) as { success: boolean; error?: string; savedCount?: number };
 
-      // Check for environment-related errors
-      if (!data.success && data.error) {
-        if (
-          data.error.includes("DATABASE_URL") ||
-          data.error.includes("connection") ||
-          data.error.includes("environment") ||
-          data.error.includes("configuration")
-        ) {
-          throw new Error(`Configuration Error: ${data.error}`);
-        }
-      }
-
-      if (data.success) {
-        setSuccess(`Successfully deleted ${selectedGuests.size} guest(s).`);
-        setSelectedGuests(new Set());
-        await fetchGuests();
+      if (response.success) {
+        // Redirect to assign tables page or event details
+        router.push(`/events/${resolvedParams.id}`);
       } else {
-        setError(data.error || "Failed to delete guests.");
+        setError(response.error || "Failed to save guests");
       }
-    } catch (error) {
-      console.error("Delete error:", error);
-      const errorMessage = handleApiError(error);
-      setError(`Delete failed: ${errorMessage}`);
+    } catch (err) {
+      console.error("Save error:", err);
+      setError(err instanceof Error ? err.message : "Failed to save guests");
     } finally {
-      setLoadingRequest(false);
+      setSaving(false);
     }
   };
 
-  const handleDeleteGuest = async (guestId: string) => {
-    if (!confirm("Are you sure you want to delete this guest?")) {
-      return;
-    }
-
-    setLoadingRequest(true);
-    setError(null);
-
-    try {
-      const data = (await authenticatedJsonFetch(`/api/guests/${guestId}`, {
-        method: "DELETE",
-      })) as {
-        success: boolean;
-        error?: string;
-      };
-
-      // Check for environment-related errors
-      if (!data.success && data.error) {
-        if (
-          data.error.includes("DATABASE_URL") ||
-          data.error.includes("connection") ||
-          data.error.includes("environment") ||
-          data.error.includes("configuration")
-        ) {
-          throw new Error(`Configuration Error: ${data.error}`);
-        }
-      }
-
-      if (data.success) {
-        setSuccess("Guest deleted successfully!");
-        await fetchGuests();
-      } else {
-        setError(data.error || "Failed to delete guest.");
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
-      const errorMessage = handleApiError(error);
-      setError(`Delete failed: ${errorMessage}`);
-    } finally {
-      setLoadingRequest(false);
-    }
+  const toggleGuestSelection = (index: number) => {
+    setProcessedGuests((prev) =>
+      prev.map((guest, i) =>
+        i === index ? { ...guest, selected: !guest.selected } : guest
+      )
+    );
   };
 
-  const handleRetry = () => {
-    setError(null);
-    setRetryCount(0);
-    fetchGuests();
+  const toggleGroupSelection = (index: number) => {
+    setDetectedGroups((prev) =>
+      prev.map((group, i) =>
+        i === index ? { ...group, selected: !group.selected } : group
+      )
+    );
   };
+
+  const selectAllGuests = (selected: boolean) => {
+    setProcessedGuests((prev) => prev.map((guest) => ({ ...guest, selected })));
+  };
+
+  const selectAllGroups = (selected: boolean) => {
+    setDetectedGroups((prev) => prev.map((group) => ({ ...group, selected })));
+  };
+
+  const selectedGuestCount = processedGuests.filter((g) => g.selected).length;
+  const selectedGroupCount = detectedGroups.filter((g) => g.selected).length;
 
   return (
     <AppLayout>
-      <div className="p-6">
-        {/* Header with back navigation */}
-        <div className="mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <Link href={`/events/${eventId}`}>
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Event
-              </Button>
-            </Link>
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900">Import Guests</h1>
-          <p className="text-gray-600 mt-2">
-            Upload a CSV file to import your guest list for this event
-          </p>
-
-          {/* CSV Format info */}
-          <div className="text-sm text-gray-500 mt-4 p-3 bg-gray-50 rounded-md">
-            <p>
-              <strong>CSV Format:</strong> name, phoneNumber (optional)
-            </p>
-            <p>Example: John Doe, +1234567890</p>
-            <p className="text-xs mt-1">Maximum file size: 10MB</p>
-          </div>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 relative overflow-hidden">
+        {/* Animated Background Elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-400/10 to-pink-400/10 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-blue-400/10 to-cyan-400/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
         </div>
 
-        {/* Enhanced Upload Section with Drag & Drop */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Upload className="mr-2 h-5 w-5" />
-              Upload Guest List
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Drag & Drop Zone */}
-            <div
-              className={`
-                relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-300
-                ${
-                  isDragOver
-                    ? "border-blue-400 bg-blue-50 scale-105 shadow-lg"
-                    : file
-                    ? "border-green-400 bg-green-50"
-                    : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
-                }
-              `}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {isDragOver && (
-                <div className="absolute inset-0 bg-blue-100 rounded-lg flex items-center justify-center animate-pulse">
-                  <div className="text-blue-600 font-medium flex items-center">
-                    <Upload className="w-6 h-6 mr-2 animate-bounce" />
-                    Drop your CSV file here!
+        <div className="relative max-w-6xl mx-auto px-4 py-8">
+          {/* Header */}
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-600 to-blue-600 rounded-2xl flex items-center justify-center mr-4 shadow-xl">
+                <Upload className="w-7 h-7 text-white" />
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-gray-900 via-green-900 to-blue-900 bg-clip-text text-transparent">
+                Import Guest List
+              </h1>
+              <Sparkles className="w-8 h-8 text-yellow-500 ml-4 animate-pulse" />
+            </div>
+            <p className="text-xl text-gray-600 leading-relaxed max-w-3xl mx-auto">
+              Upload your guest list and let our{" "}
+              <span className="font-semibold text-blue-600">
+                AI-powered system
+              </span>{" "}
+              intelligently organize and group your guests
+            </p>
+          </div>
+
+          {/* Upload Section */}
+          {!uploadResult && (
+            <div className="mb-12">
+              <Card className="border-0 shadow-2xl bg-white/80 backdrop-blur-sm">
+                <CardHeader className="text-center pb-8">
+                  <CardTitle className="text-2xl font-bold text-gray-900 mb-4">
+                    Upload Your Guest List ✨
+                  </CardTitle>
+                  <p className="text-gray-600 text-lg">
+                    Supports CSV and Excel files (.csv, .xlsx, .xls) • Max 10MB
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div
+                    className={`border-3 border-dashed rounded-2xl p-12 text-center transition-all duration-300 ${
+                      dragActive
+                        ? "border-blue-400 bg-blue-50/50"
+                        : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/30"
+                    }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                  >
+                    <div className="max-w-md mx-auto">
+                      {file ? (
+                        <div className="space-y-6">
+                          <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-xl">
+                            <FileSpreadsheet className="w-8 h-8 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                              {file.name}
+                            </h3>
+                            <p className="text-gray-600">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
+                          </div>
+                          <div className="flex gap-3 justify-center">
+                            <Button
+                              onClick={handleFileUpload}
+                              disabled={uploading}
+                              className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 shadow-xl hover:shadow-2xl transition-all duration-300 px-8 py-3"
+                            >
+                              {uploading ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <Wand2 className="w-5 h-5 mr-2" />
+                                  Process with AI
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => setFile(null)}
+                              className="border-2 border-gray-300 hover:border-gray-400"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto shadow-xl">
+                            <FileSpreadsheet className="w-10 h-10 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                              Drag & Drop Your File Here
+                            </h3>
+                            <p className="text-gray-600 text-lg mb-6">
+                              Or click to browse and select your guest list
+                            </p>
+                            <Button
+                              onClick={() =>
+                                document.getElementById("file-input")?.click()
+                              }
+                              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 px-8 py-3"
+                            >
+                              <Upload className="w-5 h-5 mr-2" />
+                              Choose File
+                            </Button>
+                            <input
+                              id="file-input"
+                              type="file"
+                              accept=".csv,.xlsx,.xls"
+                              onChange={(e) => {
+                                const selectedFile = e.target.files?.[0];
+                                if (selectedFile)
+                                  handleFileSelect(selectedFile);
+                              }}
+                              className="hidden"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+
+              {/* Processing Status */}
+              {uploading && (
+                <Card className="mt-8 border-0 shadow-xl bg-white/90 backdrop-blur-sm">
+                  <CardContent className="py-8">
+                    <div className="flex items-center justify-center space-x-4">
+                      <div className="relative">
+                        <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                        <div className="absolute inset-2 w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin animate-reverse"></div>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-semibold text-gray-900 mb-2">
+                          {uploadStage}
+                        </p>
+                        <p className="text-gray-600">
+                          Our AI is analyzing your guest list...
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Results Section */}
+          {uploadResult && (
+            <div className="space-y-8">
+              {/* Summary */}
+              <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-sm">
+                <CardContent className="py-8">
+                  <div className="flex items-center justify-center mb-6">
+                    <CheckCircle className="w-8 h-8 text-green-600 mr-3" />
+                    <h2 className="text-2xl font-bold text-gray-900">
+                      File Processed Successfully! 🎉
+                    </h2>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
+                      <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <User className="w-6 h-6 text-white" />
+                      </div>
+                      <p className="text-2xl font-bold text-blue-900 mb-1">
+                        {processedGuests.length}
+                      </p>
+                      <p className="text-blue-700 font-medium">Guests Found</p>
+                    </div>
+
+                    <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl">
+                      <div className="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <Users className="w-6 h-6 text-white" />
+                      </div>
+                      <p className="text-2xl font-bold text-purple-900 mb-1">
+                        {detectedGroups.length}
+                      </p>
+                      <p className="text-purple-700 font-medium">
+                        Groups Detected
+                      </p>
+                    </div>
+
+                    <div className="text-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
+                      <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <FileText className="w-6 h-6 text-white" />
+                      </div>
+                      <p className="text-2xl font-bold text-green-900 mb-1">
+                        {uploadResult.fileInfo?.name
+                          .split(".")
+                          .pop()
+                          ?.toUpperCase()}
+                      </p>
+                      <p className="text-green-700 font-medium">File Format</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Guest Selection */}
+              <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-sm">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
+                      <User className="w-6 h-6 mr-3 text-blue-600" />
+                      Select Guests to Import
+                    </CardTitle>
+                    <div className="flex items-center gap-4">
+                      <Badge variant="outline" className="text-lg px-4 py-2">
+                        {selectedGuestCount} of {processedGuests.length}{" "}
+                        selected
+                      </Badge>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => selectAllGuests(true)}
+                          className="border-green-300 text-green-700 hover:bg-green-50"
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => selectAllGuests(false)}
+                          className="border-red-300 text-red-700 hover:bg-red-50"
+                        >
+                          <X className="w-4 h-4 mr-1" />
+                          None
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+                    {processedGuests.map((guest, index) => (
+                      <div
+                        key={index}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
+                          guest.selected
+                            ? "border-blue-400 bg-blue-50"
+                            : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                        }`}
+                        onClick={() => toggleGuestSelection(index)}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <Checkbox
+                            checked={guest.selected}
+                            onChange={() => toggleGuestSelection(index)}
+                            className="mr-3"
+                          />
+                          <h3 className="font-semibold text-gray-900 flex-1">
+                            {guest.name}
+                          </h3>
+                        </div>
+
+                        <div className="space-y-2 text-sm text-gray-600">
+                          {guest.phoneNumber && (
+                            <div className="flex items-center">
+                              <Phone className="w-3 h-3 mr-2 text-gray-400" />
+                              {guest.phoneNumber}
+                            </div>
+                          )}
+                          {guest.email && (
+                            <div className="flex items-center">
+                              <Mail className="w-3 h-3 mr-2 text-gray-400" />
+                              {guest.email}
+                            </div>
+                          )}
+                          {guest.groupInfo && (
+                            <div className="flex items-center">
+                              <Users className="w-3 h-3 mr-2 text-gray-400" />
+                              {guest.groupInfo}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Groups Selection */}
+              {detectedGroups.length > 0 && (
+                <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-sm">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
+                        <Users className="w-6 h-6 mr-3 text-purple-600" />
+                        Detected Guest Groups
+                      </CardTitle>
+                      <div className="flex items-center gap-4">
+                        <Badge variant="outline" className="text-lg px-4 py-2">
+                          {selectedGroupCount} of {detectedGroups.length}{" "}
+                          selected
+                        </Badge>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => selectAllGroups(true)}
+                            className="border-green-300 text-green-700 hover:bg-green-50"
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            All
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => selectAllGroups(false)}
+                            className="border-red-300 text-red-700 hover:bg-red-50"
+                          >
+                            <X className="w-4 h-4 mr-1" />
+                            None
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {detectedGroups.map((group, index) => (
+                        <div
+                          key={index}
+                          className={`p-6 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
+                            group.selected
+                              ? "border-purple-400 bg-purple-50"
+                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                          }`}
+                          onClick={() => toggleGroupSelection(index)}
+                        >
+                          <div className="flex items-center justify-between mb-4">
+                            <Checkbox
+                              checked={group.selected}
+                              onChange={() => toggleGroupSelection(index)}
+                              className="mr-3"
+                            />
+                            <h3 className="font-bold text-lg text-gray-900 flex-1">
+                              {group.name}
+                            </h3>
+                            {group.suggestedTableSize && (
+                              <Badge className="bg-purple-100 text-purple-700 border-purple-300">
+                                Table for {group.suggestedTableSize}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-sm text-gray-600 font-medium">
+                              Members ({group.members.length}):
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {group.members.map((member, memberIndex) => (
+                                <Badge
+                                  key={memberIndex}
+                                  variant="outline"
+                                  className="text-xs"
+                                >
+                                  {member}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
 
-              <div className={`space-y-4 ${isDragOver ? "opacity-50" : ""}`}>
-                <div
-                  className={`mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center transition-all duration-300 ${
-                    file ? "bg-green-100 text-green-600" : "text-gray-400"
-                  }`}
-                >
-                  {file ? (
-                    <CheckCircle className="w-8 h-8" />
-                  ) : (
-                    <Upload className="w-8 h-8" />
-                  )}
-                </div>
-
-                {file ? (
-                  <div className="space-y-2">
-                    <p className="text-green-700 font-medium">
-                      ✅ File Selected
-                    </p>
-                    <p className="text-sm text-gray-600">{file.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {(file.size / (1024 * 1024)).toFixed(2)} MB
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-lg font-medium text-gray-700">
-                      Drop your CSV file here
-                    </p>
-                    <p className="text-gray-500">or click to browse files</p>
-                  </div>
-                )}
-
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  disabled={loadingRequest || fetchingGuests}
-                />
-
-                {!file && (
-                  <Button
-                    variant="outline"
-                    className="mt-4 pointer-events-none"
-                  >
-                    Choose CSV File
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Import Button */}
-            {file && (
-              <div className="flex justify-center pt-4">
+              {/* Action Buttons */}
+              <div className="flex justify-center gap-6">
                 <Button
-                  onClick={handleImport}
-                  disabled={loadingRequest || fetchingGuests}
-                  className="px-8 py-3 text-lg"
-                  size="lg"
+                  variant="outline"
+                  onClick={() => {
+                    setUploadResult(null);
+                    setProcessedGuests([]);
+                    setDetectedGroups([]);
+                    setFile(null);
+                  }}
+                  className="border-2 border-gray-300 hover:border-gray-400 px-8 py-3"
                 >
-                  {loadingRequest ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                      Importing...
-                    </div>
+                  <Upload className="w-5 h-5 mr-2" />
+                  Upload Different File
+                </Button>
+
+                <Button
+                  onClick={handleSaveGuests}
+                  disabled={saving || selectedGuestCount === 0}
+                  className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 px-8 py-3"
+                >
+                  {saving ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Saving...
+                    </>
                   ) : (
                     <>
-                      <Upload className="w-5 h-5 mr-2" />
-                      Import CSV ({file.name})
+                      <UserPlus className="w-5 h-5 mr-2" />
+                      Import {selectedGuestCount} Guest
+                      {selectedGuestCount !== 1 ? "s" : ""}
+                      <ArrowRight className="w-5 h-5 ml-2" />
                     </>
                   )}
                 </Button>
               </div>
-            )}
-
-            {error && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-md">
-                <div className="flex items-center justify-between">
-                  <p className="text-red-600">{error}</p>
-                  {error.includes("Failed to load guests") && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRetry}
-                      disabled={fetchingGuests}
-                    >
-                      {fetchingGuests ? "Retrying..." : "Retry"}
-                    </Button>
-                  )}
-                </div>
-                {retryCount > 0 && (
-                  <p className="text-red-500 text-sm mt-1">
-                    Retry attempt {retryCount}/3
-                  </p>
-                )}
-              </div>
-            )}
-
-            {success && (
-              <div className="p-4 bg-green-50 border border-green-200 rounded-md">
-                <p className="text-green-600">{success}</p>
-              </div>
-            )}
-
-            {fetchingGuests && !error && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                  <p className="text-blue-600">Loading guests...</p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Guests List with scrollable content and skeleton loading */}
-        {fetchingGuests ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Guests...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {/* Skeleton Loaders */}
-                {[...Array(8)].map((_, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border rounded-lg animate-pulse"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-4 h-4 bg-gray-200 rounded"></div>
-                      <div>
-                        <div className="h-4 bg-gray-200 rounded w-32 mb-1"></div>
-                        <div className="h-3 bg-gray-200 rounded w-24"></div>
-                      </div>
-                    </div>
-                    <div className="flex space-x-2">
-                      <div className="w-8 h-8 bg-gray-200 rounded"></div>
-                      <div className="w-8 h-8 bg-gray-200 rounded"></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ) : guests.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Imported Guests ({guests.length})</CardTitle>
-                <div className="flex space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSelectAll}
-                    disabled={loadingRequest || fetchingGuests}
-                  >
-                    {selectedGuests.size === guests.length
-                      ? "Deselect All"
-                      : "Select All"}
-                  </Button>
-                  {selectedGuests.size > 0 && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={handleDeleteSelected}
-                      disabled={loadingRequest || fetchingGuests}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete Selected ({selectedGuests.size})
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {/* Scrollable guest list */}
-              <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
-                {guests.map((guest) => (
-                  <div
-                    key={guest.id}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedGuests.has(guest.id)}
-                        onChange={() => handleSelectGuest(guest.id)}
-                        className="rounded border-gray-300"
-                        disabled={loadingRequest || fetchingGuests}
-                      />
-                      <div>
-                        <p className="font-medium">{guest.name}</p>
-                        {guest.phoneNumber && (
-                          <p className="text-sm text-gray-500">
-                            {guest.phoneNumber}
-                          </p>
-                        )}
-                      </div>
-                      {guest.tableId && (
-                        <Badge variant="secondary">
-                          <CheckCircle className="mr-1 h-3 w-3" />
-                          Assigned
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditGuest(guest)}
-                        disabled={loadingRequest || fetchingGuests}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteGuest(guest.id)}
-                        disabled={loadingRequest || fetchingGuests}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 flex justify-between items-center">
-                <p className="text-sm text-gray-500">
-                  {guests.filter((g) => g.tableId).length} of {guests.length}{" "}
-                  guests assigned to tables
-                </p>
-                <Link
-                  href={`/assign?eventId=${eventId}`}
-                  className="inline-flex items-center"
-                >
-                  <Button disabled={fetchingGuests}>
-                    Assign Tables
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-gray-500 mb-4">
-                No guests found for this event.
-              </p>
-              <Button variant="outline" onClick={handleRetry}>
-                Refresh
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Edit Guest Dialog */}
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Guest</DialogTitle>
-              <DialogDescription>
-                Update the guest information below.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Name *
-                </label>
-                <Input
-                  value={editData.name}
-                  onChange={(e) =>
-                    setEditData({ ...editData, name: e.target.value })
-                  }
-                  placeholder="Guest name"
-                  disabled={loadingRequest}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone Number
-                </label>
-                <Input
-                  value={editData.phoneNumber}
-                  onChange={(e) =>
-                    setEditData({ ...editData, phoneNumber: e.target.value })
-                  }
-                  placeholder="Phone number (optional)"
-                  disabled={loadingRequest}
-                />
-              </div>
             </div>
+          )}
 
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setEditDialogOpen(false)}
-                disabled={loadingRequest}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleSaveEdit} disabled={loadingRequest}>
-                {loadingRequest ? "Saving..." : "Save Changes"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          {/* Error Display */}
+          {error && (
+            <Card className="border-0 shadow-xl bg-red-50/80 backdrop-blur-sm border-red-200">
+              <CardContent className="py-6">
+                <div className="flex items-center justify-center text-red-700">
+                  <AlertCircle className="w-6 h-6 mr-3" />
+                  <p className="font-semibold text-lg">{error}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </AppLayout>
   );

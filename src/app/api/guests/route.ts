@@ -43,6 +43,66 @@ export async function GET(req: NextRequest) {
   }
 }
 
+export async function POST(req: NextRequest) {
+  try {
+    const userId = await verifyAuthToken(req);
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const { name, email, phoneNumber, eventId } = await req.json();
+
+    if (!name || name.trim() === "") {
+      return NextResponse.json(
+        { success: false, error: "Guest name is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!eventId) {
+      return NextResponse.json(
+        { success: false, error: "Event ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const guestData: {
+      name: string;
+      eventId: string;
+      email?: string;
+      phoneNumber?: string;
+    } = {
+      name: name.trim(),
+      eventId: eventId,
+    };
+
+    // Only add optional fields if they have values
+    if (email && email.trim()) {
+      guestData.email = email.trim();
+    }
+    if (phoneNumber && phoneNumber.trim()) {
+      guestData.phoneNumber = phoneNumber.trim();
+    }
+
+    const guestId = await guestService.create(userId, guestData);
+
+    return NextResponse.json({
+      success: true,
+      message: "Guest created successfully",
+      guestId: guestId,
+    });
+  } catch (error) {
+    console.error("Error creating guest:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to create guest" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     const userId = await verifyAuthToken(req);

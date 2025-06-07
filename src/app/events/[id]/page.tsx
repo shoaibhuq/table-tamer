@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/layout/app-layout";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Users,
@@ -18,9 +20,13 @@ import {
   Edit,
   FileText,
   X,
+  UserPlus,
+  AlertCircle,
+  CheckCircle,
+  UserMinus,
+  UserX,
 } from "lucide-react";
 import Link from "next/link";
-import { Input } from "@/components/ui/input";
 import { authenticatedJsonFetch } from "@/lib/api";
 import { TableEditDialog } from "@/components/ui/table-edit-dialog";
 import { ThemeSelector } from "@/components/ui/theme-selector";
@@ -88,6 +94,20 @@ export default function EventDetailPage() {
     "numbers" | "letters" | "roman" | "custom-prefix"
   >("numbers");
   const [renamePrefix, setRenamePrefix] = useState("Table");
+
+  // Guest addition state
+  const [addGuestDialogOpen, setAddGuestDialogOpen] = useState(false);
+  const [guestName, setGuestName] = useState("");
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [addingGuest, setAddingGuest] = useState(false);
+  const [guestError, setGuestError] = useState<string | null>(null);
+  const [guestSuccess, setGuestSuccess] = useState<string | null>(null);
+
+  // Guest deletion state
+  const [deletingGuest, setDeletingGuest] = useState<string | null>(null);
+  const [showRemoveAllDialog, setShowRemoveAllDialog] = useState(false);
+  const [removingAllGuests, setRemovingAllGuests] = useState(false);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -317,6 +337,126 @@ export default function EventDetailPage() {
       setError("Failed to rename tables. Please try again.");
     } finally {
       setRenamingTables(false);
+    }
+  };
+
+  const handleAddGuest = async () => {
+    if (!guestName.trim()) {
+      setGuestError("Please enter a guest name");
+      return;
+    }
+
+    setAddingGuest(true);
+    setGuestError(null);
+    setGuestSuccess(null);
+
+    try {
+      const guestData: {
+        name: string;
+        eventId: string;
+        email?: string;
+        phoneNumber?: string;
+      } = {
+        name: guestName.trim(),
+        eventId: eventId,
+      };
+
+      // Only add fields if they have values
+      if (guestEmail.trim()) {
+        guestData.email = guestEmail.trim();
+      }
+      if (guestPhone.trim()) {
+        guestData.phoneNumber = guestPhone.trim();
+      }
+
+      const response = (await authenticatedJsonFetch("/api/guests", {
+        method: "POST",
+        body: JSON.stringify(guestData),
+      })) as { success: boolean; error?: string };
+
+      if (response.success) {
+        setGuestSuccess("Guest added successfully!");
+        // Reset form
+        setGuestName("");
+        setGuestEmail("");
+        setGuestPhone("");
+        // Refresh event data to show new guest
+        await fetchEvent();
+        // Close dialog after a short delay
+        setTimeout(() => {
+          setAddGuestDialogOpen(false);
+          setGuestSuccess(null);
+        }, 1500);
+      } else {
+        setGuestError(response.error || "Failed to add guest");
+      }
+    } catch (error) {
+      console.error("Error adding guest:", error);
+      setGuestError("An unexpected error occurred");
+    } finally {
+      setAddingGuest(false);
+    }
+  };
+
+  const handleDeleteGuest = async (guestId: string, guestName: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to remove "${guestName}" from this event?`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingGuest(guestId);
+    setError(null);
+
+    try {
+      const response = (await authenticatedJsonFetch(`/api/guests/${guestId}`, {
+        method: "DELETE",
+      })) as { success: boolean; error?: string };
+
+      if (response.success) {
+        setSuccess(`"${guestName}" has been removed from the event.`);
+        await fetchEvent(); // Refresh the event data
+      } else {
+        setError(response.error || "Failed to remove guest");
+      }
+    } catch (error) {
+      console.error("Error deleting guest:", error);
+      setError("An unexpected error occurred while removing the guest");
+    } finally {
+      setDeletingGuest(null);
+    }
+  };
+
+  const handleRemoveAllGuests = async () => {
+    if (!event || event.guests.length === 0) return;
+
+    setRemovingAllGuests(true);
+    setError(null);
+
+    try {
+      const response = (await authenticatedJsonFetch(
+        `/api/events/${eventId}/guests`,
+        {
+          method: "DELETE",
+        }
+      )) as { success: boolean; error?: string };
+
+      if (response.success) {
+        setSuccess(
+          `All ${event.guests.length} guests have been removed from the event.`
+        );
+        setShowRemoveAllDialog(false);
+        await fetchEvent(); // Refresh the event data
+      } else {
+        setError(response.error || "Failed to remove all guests");
+      }
+    } catch (error) {
+      console.error("Error removing all guests:", error);
+      setError("An unexpected error occurred while removing guests");
+    } finally {
+      setRemovingAllGuests(false);
     }
   };
 
@@ -877,7 +1017,28 @@ export default function EventDetailPage() {
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Guests ({event.guests.length})</span>
-                  <Users className="w-5 h-5 text-gray-400" />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => setAddGuestDialogOpen(true)}
+                      className="bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-lg hover:shadow-xl transition-all duration-300"
+                    >
+                      <UserPlus className="w-4 h-4 mr-1" />
+                      Add Guest
+                    </Button>
+                    {event.guests.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowRemoveAllDialog(true)}
+                        className="border-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600 hover:text-red-700 transition-all duration-300"
+                      >
+                        <UserX className="w-4 h-4 mr-1" />
+                        Remove All
+                      </Button>
+                    )}
+                    <Users className="w-5 h-5 text-gray-400" />
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -886,7 +1047,7 @@ export default function EventDetailPage() {
                     {event.guests.map((guest) => (
                       <div
                         key={guest.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group"
                       >
                         <div>
                           <div className="font-medium">{guest.name}</div>
@@ -907,6 +1068,22 @@ export default function EventDetailPage() {
                           ) : (
                             <Badge variant="outline">Unassigned</Badge>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              handleDeleteGuest(guest.id, guest.name)
+                            }
+                            disabled={deletingGuest === guest.id}
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                            title={`Remove ${guest.name}`}
+                          >
+                            {deletingGuest === guest.id ? (
+                              <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                              <UserMinus className="w-4 h-4" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1035,6 +1212,190 @@ export default function EventDetailPage() {
               </Button>
               <Button onClick={handleRenameAllTables} disabled={renamingTables}>
                 {renamingTables ? "Renaming..." : "Rename All Tables"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Guest Dialog */}
+        <Dialog open={addGuestDialogOpen} onOpenChange={setAddGuestDialogOpen}>
+          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
+            <DialogHeader>
+              <div className="flex items-center mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl flex items-center justify-center mr-3">
+                  <UserPlus className="w-6 h-6 text-white" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-gray-900">
+                  Add Guest to {event?.name}
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-gray-600 text-lg">
+                Add a single guest to this event&apos;s guest list
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-6 space-y-6">
+              {/* Guest Name */}
+              <div className="space-y-2">
+                <Label
+                  htmlFor="guest-name"
+                  className="text-sm font-semibold text-gray-700"
+                >
+                  Guest Name *
+                </Label>
+                <Input
+                  id="guest-name"
+                  placeholder="Enter full name..."
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
+                />
+              </div>
+
+              {/* Guest Email */}
+              <div className="space-y-2">
+                <Label
+                  htmlFor="guest-email"
+                  className="text-sm font-semibold text-gray-700"
+                >
+                  Email (Optional)
+                </Label>
+                <Input
+                  id="guest-email"
+                  type="email"
+                  placeholder="guest@example.com"
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
+                />
+              </div>
+
+              {/* Guest Phone */}
+              <div className="space-y-2">
+                <Label
+                  htmlFor="guest-phone"
+                  className="text-sm font-semibold text-gray-700"
+                >
+                  Phone Number (Optional)
+                </Label>
+                <Input
+                  id="guest-phone"
+                  type="tel"
+                  placeholder="+1 (555) 123-4567"
+                  value={guestPhone}
+                  onChange={(e) => setGuestPhone(e.target.value)}
+                  className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
+                />
+              </div>
+
+              {/* Error Message */}
+              {guestError && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center">
+                  <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+                  <p className="text-red-700 font-medium">{guestError}</p>
+                </div>
+              )}
+
+              {/* Success Message */}
+              {guestSuccess && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 mr-2" />
+                  <p className="text-emerald-700 font-medium">{guestSuccess}</p>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setAddGuestDialogOpen(false)}
+                className="border-2 border-gray-300 hover:border-gray-400 px-6"
+                disabled={addingGuest}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddGuest}
+                disabled={addingGuest || !guestName.trim()}
+                className="bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
+              >
+                {addingGuest ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Adding Guest...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Add Guest
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Remove All Guests Dialog */}
+        <Dialog
+          open={showRemoveAllDialog}
+          onOpenChange={setShowRemoveAllDialog}
+        >
+          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
+            <DialogHeader>
+              <div className="flex items-center mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center mr-3">
+                  <UserX className="w-6 h-6 text-white" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-gray-900">
+                  Remove All Guests
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-gray-600 text-lg">
+                This action will remove all {event?.guests.length} guests from
+                &ldquo;
+                {event?.name}&rdquo;. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-6">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start">
+                <AlertCircle className="w-5 h-5 text-amber-600 mr-3 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-amber-800 font-medium mb-1">Warning</p>
+                  <p className="text-amber-700 text-sm">
+                    This will permanently remove all guests from this event. You
+                    will need to re-import or manually add guests again if
+                    needed.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveAllDialog(false)}
+                className="border-2 border-gray-300 hover:border-gray-400 px-6"
+                disabled={removingAllGuests}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRemoveAllGuests}
+                disabled={removingAllGuests}
+                className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
+              >
+                {removingAllGuests ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Removing All Guests...
+                  </>
+                ) : (
+                  <>
+                    <UserX className="w-4 h-4 mr-2" />
+                    Remove All {event?.guests.length} Guests
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

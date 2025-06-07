@@ -18,6 +18,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if Twilio is properly configured
+    if (
+      !process.env.TWILIO_ACCOUNT_SID ||
+      !process.env.TWILIO_AUTH_TOKEN ||
+      !process.env.TWILIO_PHONE_NUMBER
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "SMS service is not configured. Please set up Twilio credentials.",
+        },
+        { status: 500 }
+      );
+    }
+
     const { eventId } = await req.json();
 
     if (!eventId) {
@@ -38,20 +54,38 @@ export async function POST(req: NextRequest) {
       (guest) => guest.phoneNumber && guest.tableId
     );
 
+    const results = [];
     for (const guest of assignedGuests) {
       const table = tables.find((t) => t.id === guest.tableId);
       if (table) {
-        await twilioClient.messages.create({
-          body: `Hi ${guest.name}, you have been assigned to ${table.name}.`,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: guest.phoneNumber!,
-        });
+        try {
+          await twilioClient.messages.create({
+            body: `Hi ${guest.name}, you have been assigned to ${table.name}.`,
+            from: process.env.TWILIO_PHONE_NUMBER,
+            to: guest.phoneNumber!,
+          });
+          results.push({ guest: guest.name, status: "sent" });
+        } catch (smsError) {
+          console.error(`Failed to send SMS to ${guest.name}:`, smsError);
+          results.push({
+            guest: guest.name,
+            status: "failed",
+            error: smsError,
+          });
+        }
       }
     }
 
+    const successful = results.filter((r) => r.status === "sent").length;
+    const failed = results.filter((r) => r.status === "failed").length;
+
     return NextResponse.json({
-      success: true,
-      message: `SMS sent to ${assignedGuests.length} guests`,
+      success: successful > 0,
+      message:
+        failed > 0
+          ? `SMS sent to ${successful} guests. Failed to send to ${failed} guests.`
+          : `SMS sent successfully to ${successful} guests`,
+      results: results,
     });
   } catch (error) {
     console.error(error);
