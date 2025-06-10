@@ -75,9 +75,9 @@ export function Sidebar({ className }: SidebarProps) {
         {collapsed ? (
           <div className="flex flex-col items-center space-y-3">
             <Link
-              href="/landing"
+              href="/dashboard"
               className="group relative"
-              title="Table Tamer - Go to Landing Page"
+              title="Table Tamer - Go to Dashboard"
             >
               <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-lg">
                 <Sparkles className="w-6 h-6 text-white" />
@@ -95,9 +95,9 @@ export function Sidebar({ className }: SidebarProps) {
           <>
             <div className="flex items-center space-x-3">
               <Link
-                href="/landing"
+                href="/dashboard"
                 className="group flex items-center space-x-3"
-                title="Go to Landing Page"
+                title="Go to Dashboard"
               >
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 group-hover:rotate-3 transition-all duration-300 shadow-lg">
                   <Sparkles className="w-6 h-6 text-white" />

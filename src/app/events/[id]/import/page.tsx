@@ -23,12 +23,16 @@ import {
   Mail,
   Phone,
   User,
+  Table as TableIcon,
+  Settings,
+  Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface ProcessedGuest {
-  name: string;
+  firstName: string;
+  lastName: string;
   phoneNumber?: string;
   email?: string;
   groupInfo?: string;
@@ -40,7 +44,17 @@ interface GuestGroup {
   name: string;
   members: string[];
   suggestedTableSize?: number;
+  groupType?:
+    | "table_explicit"
+    | "group_id"
+    | "pattern"
+    | "family"
+    | "corporate"
+    | "plus_one";
+  confidence?: "high" | "medium" | "low";
+  reasoning?: string;
   selected?: boolean;
+  autoCreateTable?: boolean;
 }
 
 interface ImportResponse {
@@ -52,6 +66,8 @@ interface ImportResponse {
     hasGroups: boolean;
     groupType: string | null;
     description: string;
+    confidence?: "high" | "medium" | "low";
+    tableOptimized?: boolean;
   };
   fileInfo?: {
     name: string;
@@ -78,6 +94,7 @@ export default function ImportGuestsPage({
   const [processedGuests, setProcessedGuests] = useState<ProcessedGuest[]>([]);
   const [detectedGroups, setDetectedGroups] = useState<GuestGroup[]>([]);
   const [saving, setSaving] = useState(false);
+  const [autoCreateTables, setAutoCreateTables] = useState(true);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -159,6 +176,7 @@ export default function ImportGuestsPage({
           (group) => ({
             ...group,
             selected: true, // Default all groups to selected
+            autoCreateTable: true, // Default all groups to auto-create tables
           })
         );
 
@@ -195,8 +213,21 @@ export default function ImportGuestsPage({
           eventId: resolvedParams.id,
           guests: selectedGuests,
           groups: selectedGroups,
+          autoTableAssignment: {
+            createTables: autoCreateTables,
+            selectedGroups: selectedGroups.filter(
+              (group) => group.autoCreateTable
+            ),
+          },
         }),
-      })) as { success: boolean; error?: string; savedCount?: number };
+      })) as {
+        success: boolean;
+        error?: string;
+        savedCount?: number;
+        tablesCreated?: number;
+        guestsAssigned?: number;
+        message?: string;
+      };
 
       if (response.success) {
         // Redirect to assign tables page or event details
@@ -228,6 +259,16 @@ export default function ImportGuestsPage({
     );
   };
 
+  const toggleGroupAutoTable = (index: number) => {
+    setDetectedGroups((prev) =>
+      prev.map((group, i) =>
+        i === index
+          ? { ...group, autoCreateTable: !group.autoCreateTable }
+          : group
+      )
+    );
+  };
+
   const selectAllGuests = (selected: boolean) => {
     setProcessedGuests((prev) => prev.map((guest) => ({ ...guest, selected })));
   };
@@ -236,8 +277,17 @@ export default function ImportGuestsPage({
     setDetectedGroups((prev) => prev.map((group) => ({ ...group, selected })));
   };
 
+  const selectAllAutoTables = (autoCreate: boolean) => {
+    setDetectedGroups((prev) =>
+      prev.map((group) => ({ ...group, autoCreateTable: autoCreate }))
+    );
+  };
+
   const selectedGuestCount = processedGuests.filter((g) => g.selected).length;
   const selectedGroupCount = detectedGroups.filter((g) => g.selected).length;
+  const autoTableCount = detectedGroups.filter(
+    (g) => g.selected && g.autoCreateTable
+  ).length;
 
   return (
     <AppLayout>
@@ -431,8 +481,16 @@ export default function ImportGuestsPage({
                         {detectedGroups.length}
                       </p>
                       <p className="text-purple-700 font-medium">
-                        Groups Detected
+                        Table Groups Detected
                       </p>
+                      {uploadResult?.groupIndicators?.tableOptimized && (
+                        <div className="mt-2">
+                          <Badge className="bg-green-100 text-green-700 border-green-300 text-xs">
+                            <TableIcon className="w-3 h-3 mr-1" />
+                            Table Optimized
+                          </Badge>
+                        </div>
+                      )}
                     </div>
 
                     <div className="text-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
@@ -502,11 +560,11 @@ export default function ImportGuestsPage({
                         <div className="flex items-center justify-between mb-3">
                           <Checkbox
                             checked={guest.selected}
-                            onChange={() => toggleGuestSelection(index)}
+                            onCheckedChange={() => toggleGuestSelection(index)}
                             className="mr-3"
                           />
                           <h3 className="font-semibold text-gray-900 flex-1">
-                            {guest.name}
+                            {`${guest.firstName} ${guest.lastName}`.trim()}
                           </h3>
                         </div>
 
@@ -538,90 +596,339 @@ export default function ImportGuestsPage({
 
               {/* Groups Selection */}
               {detectedGroups.length > 0 && (
-                <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-sm">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
-                        <Users className="w-6 h-6 mr-3 text-purple-600" />
-                        Detected Guest Groups
-                      </CardTitle>
-                      <div className="flex items-center gap-4">
-                        <Badge variant="outline" className="text-lg px-4 py-2">
-                          {selectedGroupCount} of {detectedGroups.length}{" "}
-                          selected
-                        </Badge>
-                        <div className="flex gap-2">
-                          <Button
+                <>
+                  <Card className="border-0 shadow-xl bg-white/90 backdrop-blur-sm">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
+                          <TableIcon className="w-6 h-6 mr-3 text-purple-600" />
+                          Detected Table Groups
+                        </CardTitle>
+                        <div className="flex items-center gap-4">
+                          <Badge
                             variant="outline"
-                            size="sm"
-                            onClick={() => selectAllGroups(true)}
-                            className="border-green-300 text-green-700 hover:bg-green-50"
+                            className="text-lg px-4 py-2"
                           >
-                            <Check className="w-4 h-4 mr-1" />
-                            All
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => selectAllGroups(false)}
-                            className="border-red-300 text-red-700 hover:bg-red-50"
-                          >
-                            <X className="w-4 h-4 mr-1" />
-                            None
-                          </Button>
+                            {selectedGroupCount} of {detectedGroups.length}{" "}
+                            selected
+                          </Badge>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => selectAllGroups(true)}
+                              className="border-green-300 text-green-700 hover:bg-green-50"
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              All
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => selectAllGroups(false)}
+                              className="border-red-300 text-red-700 hover:bg-red-50"
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              None
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {detectedGroups.map((group, index) => (
-                        <div
-                          key={index}
-                          className={`p-6 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
-                            group.selected
-                              ? "border-purple-400 bg-purple-50"
-                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
-                          }`}
-                          onClick={() => toggleGroupSelection(index)}
-                        >
-                          <div className="flex items-center justify-between mb-4">
-                            <Checkbox
-                              checked={group.selected}
-                              onChange={() => toggleGroupSelection(index)}
-                              className="mr-3"
-                            />
-                            <h3 className="font-bold text-lg text-gray-900 flex-1">
-                              {group.name}
-                            </h3>
-                            {group.suggestedTableSize && (
-                              <Badge className="bg-purple-100 text-purple-700 border-purple-300">
-                                Table for {group.suggestedTableSize}
-                              </Badge>
-                            )}
-                          </div>
-
-                          <div className="space-y-2">
-                            <p className="text-sm text-gray-600 font-medium">
-                              Members ({group.members.length}):
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {group.members.map((member, memberIndex) => (
-                                <Badge
-                                  key={memberIndex}
-                                  variant="outline"
-                                  className="text-xs"
-                                >
-                                  {member}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {detectedGroups.map((group, index) => (
+                          <div
+                            key={index}
+                            className={`p-6 rounded-xl border-2 transition-all duration-300 ${
+                              group.selected
+                                ? "border-purple-400 bg-purple-50"
+                                : "border-gray-200 bg-gray-50"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center">
+                                <Checkbox
+                                  checked={group.selected}
+                                  onCheckedChange={() =>
+                                    toggleGroupSelection(index)
+                                  }
+                                  className="mr-3"
+                                />
+                                <div>
+                                  <h3 className="font-bold text-lg text-gray-900">
+                                    {group.name}
+                                  </h3>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {group.groupType && (
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-xs capitalize ${
+                                          group.groupType ===
+                                            "table_explicit" ||
+                                          group.groupType === "group_id"
+                                            ? "border-blue-400 text-blue-700 bg-blue-50 font-semibold"
+                                            : ""
+                                        }`}
+                                      >
+                                        {group.groupType === "table_explicit"
+                                          ? "Table #"
+                                          : group.groupType === "group_id"
+                                          ? "Group ID"
+                                          : group.groupType.replace("_", " ")}
+                                      </Badge>
+                                    )}
+                                    {group.confidence && (
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-xs ${
+                                          group.confidence === "high"
+                                            ? "border-green-300 text-green-700 bg-green-50"
+                                            : group.confidence === "medium"
+                                            ? "border-yellow-300 text-yellow-700 bg-yellow-50"
+                                            : "border-red-300 text-red-700 bg-red-50"
+                                        }`}
+                                      >
+                                        {group.confidence} confidence
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              {group.suggestedTableSize && (
+                                <Badge className="bg-purple-100 text-purple-700 border-purple-300">
+                                  Table for {group.suggestedTableSize}
                                 </Badge>
-                              ))}
+                              )}
+                            </div>
+
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-sm text-gray-600 font-medium mb-2">
+                                  Members ({group.members.length}):
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {group.members.map((member, memberIndex) => (
+                                    <Badge
+                                      key={memberIndex}
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {member}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                              {group.reasoning && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                  <p className="text-xs text-blue-700 font-medium mb-1">
+                                    AI Analysis:
+                                  </p>
+                                  <p className="text-xs text-blue-600">
+                                    {group.reasoning}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Automatic Table Assignment Configuration */}
+                  <Card className="border-0 shadow-xl bg-gradient-to-br from-blue-50 to-indigo-50 backdrop-blur-sm border-blue-200">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
+                          <Zap className="w-6 h-6 mr-3 text-blue-600" />
+                          Automatic Table Assignment
+                        </CardTitle>
+                        <div className="flex items-center gap-4">
+                          <Badge
+                            variant="outline"
+                            className="text-lg px-4 py-2 bg-white/80"
+                          >
+                            {autoTableCount} tables will be created
+                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              checked={autoCreateTables}
+                              onCheckedChange={(checked) =>
+                                setAutoCreateTables(checked === true)
+                              }
+                            />
+                            <span className="text-sm font-medium text-gray-700">
+                              Enable Auto-Assignment
+                            </span>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <TableIcon className="w-5 h-5 text-blue-600" />
+                            <span className="font-medium text-gray-900">
+                              Select groups to auto-create tables:
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => selectAllAutoTables(true)}
+                              className="border-green-300 text-green-700 hover:bg-green-50"
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              All Tables
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => selectAllAutoTables(false)}
+                              className="border-red-300 text-red-700 hover:bg-red-50"
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              No Tables
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {detectedGroups
+                            .filter((group) => group.selected)
+                            .map((group) => {
+                              const originalIndex = detectedGroups.findIndex(
+                                (g) => g.id === group.id
+                              );
+                              return (
+                                <div
+                                  key={group.id}
+                                  className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
+                                    group.autoCreateTable && autoCreateTables
+                                      ? "border-blue-400 bg-blue-50"
+                                      : "border-gray-300 bg-white hover:border-gray-400"
+                                  } ${
+                                    !autoCreateTables
+                                      ? "opacity-50 cursor-not-allowed"
+                                      : ""
+                                  }`}
+                                  onClick={() =>
+                                    autoCreateTables &&
+                                    toggleGroupAutoTable(originalIndex)
+                                  }
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center">
+                                      <Checkbox
+                                        checked={
+                                          group.autoCreateTable &&
+                                          autoCreateTables
+                                        }
+                                        onCheckedChange={() =>
+                                          autoCreateTables &&
+                                          toggleGroupAutoTable(originalIndex)
+                                        }
+                                        disabled={!autoCreateTables}
+                                        className="mr-3"
+                                      />
+                                      <div>
+                                        <h4 className="font-semibold text-gray-900 text-sm">
+                                          {group.name}
+                                        </h4>
+                                        <p className="text-xs text-gray-600">
+                                          {group.members.length} member
+                                          {group.members.length !== 1
+                                            ? "s"
+                                            : ""}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {group.autoCreateTable &&
+                                      autoCreateTables && (
+                                        <div className="flex items-center">
+                                          <TableIcon className="w-4 h-4 text-blue-600" />
+                                        </div>
+                                      )}
+                                  </div>
+
+                                  {group.autoCreateTable &&
+                                    autoCreateTables && (
+                                      <div className="text-xs text-blue-700 bg-blue-100 rounded-lg p-2">
+                                        <div className="flex items-center justify-between">
+                                          <span>Will create:</span>
+                                          <Badge className="bg-blue-600 text-white text-xs">
+                                            {group.name
+                                              .toLowerCase()
+                                              .includes("table")
+                                              ? group.name
+                                              : `Table (${group.name})`}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex items-center justify-between mt-1">
+                                          <span>Capacity:</span>
+                                          <span className="font-medium">
+                                            {group.suggestedTableSize || 8}{" "}
+                                            seats
+                                          </span>
+                                        </div>
+                                      </div>
+                                    )}
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {autoCreateTables && autoTableCount > 0 && (
+                          <div className="mt-6 p-4 bg-blue-100 rounded-xl border border-blue-200">
+                            <div className="flex items-center mb-2">
+                              <Settings className="w-5 h-5 text-blue-600 mr-2" />
+                              <span className="font-semibold text-blue-900">
+                                Auto-Assignment Summary
+                              </span>
+                            </div>
+                            <div className="text-sm text-blue-800 space-y-1">
+                              <p>
+                                • {autoTableCount} table
+                                {autoTableCount !== 1 ? "s" : ""} will be
+                                automatically created
+                              </p>
+                              <p>
+                                •{" "}
+                                {detectedGroups
+                                  .filter(
+                                    (g) => g.selected && g.autoCreateTable
+                                  )
+                                  .reduce(
+                                    (sum, g) => sum + g.members.length,
+                                    0
+                                  )}{" "}
+                                guest
+                                {detectedGroups
+                                  .filter(
+                                    (g) => g.selected && g.autoCreateTable
+                                  )
+                                  .reduce(
+                                    (sum, g) => sum + g.members.length,
+                                    0
+                                  ) !== 1
+                                  ? "s"
+                                  : ""}{" "}
+                                will be automatically assigned
+                              </p>
+                              <p>
+                                • You can modify these assignments later in the
+                                table assignment page
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
               )}
 
               {/* Action Buttons */}

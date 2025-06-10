@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/layout/app-layout";
-import { Guest, Table } from "@/lib/firestore";
+import {
+  Guest,
+  Table,
+  getGuestFullName,
+  matchesGuestSearch,
+} from "@/lib/firestore";
 import { Timestamp } from "firebase/firestore";
 import { authenticatedJsonFetch } from "@/lib/api";
 import Link from "next/link";
@@ -118,7 +123,7 @@ function DraggableGuest({
                 isSelected ? "text-blue-900" : "text-gray-900"
               }`}
             >
-              {guest.name}
+              {getGuestFullName(guest)}
             </p>
             {guest.phoneNumber && (
               <p
@@ -1250,22 +1255,16 @@ function AssignPageContent() {
   // Filter unassigned guests with their specific search
   const filterUnassignedGuests = (guests: Guest[]) => {
     if (!unassignedSearchQuery.trim()) return guests;
-    const query = unassignedSearchQuery.toLowerCase();
-    return guests.filter(
-      (guest) =>
-        guest.name.toLowerCase().includes(query) ||
-        (guest.phoneNumber && guest.phoneNumber.includes(query))
+    return guests.filter((guest) =>
+      matchesGuestSearch(guest, unassignedSearchQuery)
     );
   };
 
   // Filter all guests (including those in tables) with global search
   const filterAllGuests = (guests: Guest[]) => {
     if (!globalSearchQuery.trim()) return guests;
-    const query = globalSearchQuery.toLowerCase();
-    return guests.filter(
-      (guest) =>
-        guest.name.toLowerCase().includes(query) ||
-        (guest.phoneNumber && guest.phoneNumber.includes(query))
+    return guests.filter((guest) =>
+      matchesGuestSearch(guest, globalSearchQuery)
     );
   };
 

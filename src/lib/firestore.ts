@@ -35,10 +35,14 @@ export interface Event {
 export interface Guest {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   phoneNumber?: string;
+  email?: string;
   eventId: string;
   userId: string;
   tableId?: string;
+  notes?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -323,18 +327,86 @@ export const guestService = {
   },
 
   async delete(userId: string, guestIds: string[]): Promise<void> {
-    const batch = writeBatch(db);
+    if (guestIds.length === 0) return;
 
-    for (const guestId of guestIds) {
-      const guestRef = doc(db, "guests", guestId);
-      const guestDoc = await getDoc(guestRef);
+    // More efficient bulk delete: process in parallel chunks
+    const chunkSize = 100; // Optimal chunk size for getDoc calls
+    const batches = [];
 
-      if (guestDoc.exists() && guestDoc.data().userId === userId) {
-        batch.delete(guestRef);
-      }
+    for (let i = 0; i < guestIds.length; i += chunkSize) {
+      const chunk = guestIds.slice(i, i + chunkSize);
+      batches.push(chunk);
     }
 
-    await batch.commit();
+    // Process batches in parallel for faster execution
+    await Promise.all(
+      batches.map(async (guestIdsBatch) => {
+        // Get all docs in this batch at once using Promise.all
+        const docRefs = guestIdsBatch.map((id) => doc(db, "guests", id));
+        const docSnapshots = await Promise.all(
+          docRefs.map((ref) => getDoc(ref))
+        );
+
+        // Create write batch for verified docs
+        const deleteBatch = writeBatch(db);
+        let hasValidDocs = false;
+
+        docSnapshots.forEach((docSnapshot) => {
+          if (docSnapshot.exists() && docSnapshot.data().userId === userId) {
+            deleteBatch.delete(docSnapshot.ref);
+            hasValidDocs = true;
+          }
+        });
+
+        // Only commit if there are valid docs to delete
+        if (hasValidDocs) {
+          await deleteBatch.commit();
+        }
+      })
+    );
+  },
+
+  async deleteByEvent(userId: string, eventId: string): Promise<number> {
+    // Most efficient: delete all guests for an event without individual reads
+    const guestsQuery = query(
+      collection(db, "guests"),
+      where("userId", "==", userId),
+      where("eventId", "==", eventId)
+    );
+
+    const snapshot = await getDocs(guestsQuery);
+
+    if (snapshot.empty) {
+      return 0;
+    }
+
+    // Use batching to handle large numbers of guests efficiently
+    const deleteBatches = [];
+    let currentBatch = writeBatch(db);
+    let operationCount = 0;
+    const batchSize = 500; // Firestore batch limit
+
+    snapshot.docs.forEach((guestDoc) => {
+      currentBatch.delete(guestDoc.ref);
+      operationCount++;
+
+      // If we've reached the batch limit, start a new batch
+      if (operationCount === batchSize) {
+        deleteBatches.push(currentBatch);
+        currentBatch = writeBatch(db);
+        operationCount = 0;
+      }
+    });
+
+    // Add the final batch if it has operations
+    if (operationCount > 0) {
+      deleteBatches.push(currentBatch);
+    }
+
+    // Execute all batches in parallel for maximum speed
+    await Promise.all(deleteBatches.map((batch) => batch.commit()));
+
+    return snapshot.size;
   },
 };
 
@@ -458,3 +530,43 @@ export const settingsService = {
     );
   },
 };
+
+// Helper function to get full name from guest
+export function getGuestFullName(guest: Guest): string {
+  if (guest.firstName || guest.lastName) {
+    return `${guest.firstName || ""} ${guest.lastName || ""}`.trim();
+  }
+  return guest.name || "";
+}
+
+// Helper function to get display name for search/autocomplete
+export function getGuestDisplayName(guest: Guest): string {
+  const fullName = getGuestFullName(guest);
+  if (guest.email && guest.phoneNumber) {
+    return `${fullName} (${guest.email}, ${guest.phoneNumber})`;
+  } else if (guest.email) {
+    return `${fullName} (${guest.email})`;
+  } else if (guest.phoneNumber) {
+    return `${fullName} (${guest.phoneNumber})`;
+  }
+  return fullName;
+}
+
+// Helper function for search matching
+export function matchesGuestSearch(guest: Guest, searchTerm: string): boolean {
+  const term = searchTerm.toLowerCase();
+  const fullName = getGuestFullName(guest).toLowerCase();
+  const firstName = (guest.firstName || "").toLowerCase();
+  const lastName = (guest.lastName || "").toLowerCase();
+  const email = (guest.email || "").toLowerCase();
+  const phone = (guest.phoneNumber || "").toLowerCase();
+
+  return (
+    fullName.includes(term) ||
+    firstName.includes(term) ||
+    lastName.includes(term) ||
+    email.includes(term) ||
+    phone.includes(term) ||
+    (guest.name || "").toLowerCase().includes(term)
+  );
+}

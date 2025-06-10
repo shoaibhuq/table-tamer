@@ -11,13 +11,22 @@ interface GuestGroup {
   name: string;
   members: string[];
   suggestedTableSize?: number;
+  groupType?:
+    | "table_explicit"
+    | "group_id"
+    | "pattern"
+    | "family"
+    | "corporate"
+    | "plus_one";
+  confidence?: "high" | "medium" | "low";
+  reasoning?: string;
 }
 
 interface ProcessedGuest {
-  name: string;
+  firstName: string;
+  lastName: string;
   phoneNumber?: string;
   email?: string;
-  groupId?: string;
   groupInfo?: string;
 }
 
@@ -163,39 +172,74 @@ export async function POST(req: NextRequest) {
 
     try {
       aiResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
-            content: `You are a data parsing assistant for event planning. Analyze spreadsheet data to identify guest information and group relationships.
+            content: `You are a specialized table assignment AI assistant for event seating management. Your PRIMARY MISSION is to identify explicit table/group identifiers and optimize guest data for table-based seating arrangements.
 
-IMPORTANT: You MUST return valid JSON only. No explanations, no markdown, just pure JSON.
+CRITICAL: Return ONLY valid JSON. No explanations, markdown, or additional text.
 
-TASK: Identify columns and detect guest groups
-1. Find column indexes for: name (required), phoneNumber (optional), email (optional)
-2. Detect if there are group indicators like: family names, table preferences, group IDs, party names, +1 indicators, etc.
-3. Determine if first row is a header
+TABLE-FOCUSED ANALYSIS PRIORITIES:
 
-Return ONLY this JSON structure:
+1. COLUMN IDENTIFICATION (Standard guest info):
+   - firstName: Variations (first, fname, given name, etc.)
+   - lastName: Variations (last, lname, surname, family name, etc.)
+   - name/fullName: Combined name fields (full name, guest name, etc.)
+   - phoneNumber: Contact fields (phone, tel, mobile, cell, etc.)
+   - email: Email fields (email, e-mail, contact email, etc.)
+
+2. **HIGHEST PRIORITY - EXPLICIT TABLE/GROUP IDENTIFIERS:**
+   SCAN FOR THESE CRITICAL COLUMNS FIRST:
+   - Table numbers: "table", "table #", "table number", "seating", "assigned table"
+   - Group IDs: "group", "group #", "group id", "group number", "party #", "party id"
+   - Team/Party names: "team", "party", "delegation", "organization"
+   - Numerical groupings: Any column with consistent numeric patterns (1,1,1,2,2,3,3)
+   - Alphabetical groups: Consistent letter patterns (A,A,B,B,C,C)
+
+3. **SECONDARY - TABLE-SUITABLE GROUPING PATTERNS:**
+   Only if NO explicit identifiers found:
+   - Same surnames (family seating)
+   - Plus-one patterns (Guest of X, +1 indicators)
+   - Corporate affiliations (same company for business events)
+
+4. **CRITICAL GROUP COLUMN DETECTION:**
+   Look for columns containing ANY of these terms (case-insensitive):
+   - "group", "group #", "group number", "group id"
+   - "table", "table #", "table number", "table assignment"
+   - "party", "party #", "party id", "party number"
+   - "team", "team #", "team number"
+   - Numeric columns with repeated values (1,1,2,2,3,3)
+   
+5. **DETECTION CONFIDENCE RULES:**
+   - HIGH: Explicit table/group number columns found
+   - MEDIUM: Clear patterns in dedicated grouping columns
+   - LOW: Only implicit relationship patterns available
+
+OPTIMIZED JSON RESPONSE:
 {
-  "nameIndex": number,
+  "firstNameIndex": number | null,
+  "lastNameIndex": number | null,
+  "nameIndex": number | null,
   "phoneIndex": number | null,
   "emailIndex": number | null,
   "hasHeader": boolean,
   "groupIndicators": {
     "hasGroups": boolean,
     "groupColumnIndex": number | null,
-    "groupType": "family" | "party" | "table" | "id" | "plus_one" | null,
-    "description": "string describing how groups are indicated"
+    "groupType": "table_explicit" | "group_id" | "party_name" | "family" | "corporate" | "plus_one" | null,
+    "description": "explanation of table grouping method found",
+    "confidence": "high" | "medium" | "low",
+    "tableOptimized": boolean
   }
 }
 
-Examples of group indicators:
-- Same last names (family groups)
-- Column with "Table 1", "Table A" (table assignments)
-- Column with "Smith Party", "Wedding Party" (party names)
-- Column with group IDs "G001", "Group1" 
-- Names like "John Smith +1", "Jane Doe + Guest"`,
+CRITICAL PRIORITIZATION:
+1. **EXPLICIT TABLE COLUMNS = ALWAYS HIGH PRIORITY & HIGH CONFIDENCE**
+2. Dedicated group/party ID columns = High priority
+3. Consistent numerical/alphabetical patterns = Medium priority  
+4. Relationship-based grouping = Low priority fallback
+5. If explicit table data found, set "tableOptimized": true`,
           },
           {
             role: "user",
@@ -269,68 +313,221 @@ Examples of group indicators:
 
       // Fallback: try to manually detect columns
       const firstRow = validRows[0] || [];
+      let firstNameIndex = -1;
+      let lastNameIndex = -1;
       let nameIndex = -1;
       let phoneIndex = -1;
       let emailIndex = -1;
 
-      // Simple column detection as fallback
+      // Enhanced fallback detection including group columns
+      let groupColumnIndex = -1;
+      let groupType: string | null = null;
+
       for (let i = 0; i < firstRow.length; i++) {
         const cellValue = String(firstRow[i] || "").toLowerCase();
+
+        // Check for firstName variations
         if (
+          firstNameIndex === -1 &&
+          (cellValue.includes("first") ||
+            cellValue.includes("fname") ||
+            cellValue.includes("given"))
+        ) {
+          firstNameIndex = i;
+        }
+        // Check for lastName variations
+        else if (
+          lastNameIndex === -1 &&
+          (cellValue.includes("last") ||
+            cellValue.includes("lname") ||
+            cellValue.includes("surname") ||
+            cellValue.includes("family"))
+        ) {
+          lastNameIndex = i;
+        }
+        // Check for general name column
+        else if (
           nameIndex === -1 &&
           (cellValue.includes("name") || cellValue.includes("guest"))
         ) {
           nameIndex = i;
-        } else if (
+        }
+        // Check for phone variations
+        else if (
           phoneIndex === -1 &&
           (cellValue.includes("phone") ||
             cellValue.includes("tel") ||
-            cellValue.includes("mobile"))
+            cellValue.includes("mobile") ||
+            cellValue.includes("contact"))
         ) {
           phoneIndex = i;
-        } else if (emailIndex === -1 && cellValue.includes("email")) {
+        }
+        // Check for email variations
+        else if (
+          emailIndex === -1 &&
+          (cellValue.includes("email") || cellValue.includes("e-mail"))
+        ) {
           emailIndex = i;
+        }
+        // Check for group/table columns (enhanced detection)
+        else if (
+          groupColumnIndex === -1 &&
+          (cellValue.includes("group") ||
+            cellValue.includes("table") ||
+            cellValue.includes("party") ||
+            cellValue.includes("team") ||
+            cellValue.includes("seating") ||
+            cellValue.includes("assignment") ||
+            cellValue.includes("allocation") ||
+            cellValue.includes("section") ||
+            cellValue.includes("room") ||
+            cellValue.includes("area") ||
+            cellValue.includes("zone") ||
+            cellValue.includes("squad") ||
+            cellValue.includes("cluster") ||
+            cellValue.includes("pod") ||
+            cellValue.includes("circle") ||
+            cellValue.includes("cabin") ||
+            cellValue.includes("house") ||
+            cellValue.includes("division") ||
+            cellValue.includes("category") ||
+            cellValue.includes("class") ||
+            cellValue.includes("unit"))
+        ) {
+          groupColumnIndex = i;
+          if (cellValue.includes("table")) {
+            groupType = "table_explicit";
+          } else if (
+            cellValue.includes("group") ||
+            cellValue.includes("party") ||
+            cellValue.includes("team")
+          ) {
+            groupType = "group_id";
+          } else {
+            groupType = "pattern";
+          }
         }
       }
 
-      // If no header detected, assume first column is name
-      if (nameIndex === -1) {
+      // Check for numeric pattern columns if no explicit group column found
+      if (groupColumnIndex === -1) {
+        for (let i = 0; i < firstRow.length; i++) {
+          const cellValue = String(firstRow[i] || "").toLowerCase();
+          // Skip already identified columns
+          if (
+            i === firstNameIndex ||
+            i === lastNameIndex ||
+            i === nameIndex ||
+            i === phoneIndex ||
+            i === emailIndex
+          ) {
+            continue;
+          }
+
+          // Check if this could be a numeric grouping column (enhanced patterns)
+          if (
+            cellValue.match(
+              /^#?\d+$|number|id|num$|^[a-z]$|assignment|allocation$/
+            )
+          ) {
+            // Look at data rows to see if it has grouping patterns
+            // Determine if has header based on header detection patterns
+            const hasHeaderRow = firstRow.some((cell) => {
+              const val = String(cell || "").toLowerCase();
+              return (
+                val.includes("name") ||
+                val.includes("phone") ||
+                val.includes("email") ||
+                val.includes("first") ||
+                val.includes("last") ||
+                val.includes("group") ||
+                val.includes("table")
+              );
+            });
+
+            const dataValues = validRows
+              .slice(hasHeaderRow ? 1 : 0, 6)
+              .map((row) => (row[i] ? String(row[i]).trim() : ""))
+              .filter((val) => val.length > 0);
+
+            if (dataValues.length > 1) {
+              const hasRepeats = dataValues.some(
+                (val, idx) => dataValues.indexOf(val) !== idx
+              );
+              if (hasRepeats) {
+                groupColumnIndex = i;
+                groupType = "pattern";
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // If no name columns detected, assume first column is name
+      if (firstNameIndex === -1 && lastNameIndex === -1 && nameIndex === -1) {
         nameIndex = 0;
       }
 
+      const hasGrouping = groupColumnIndex !== -1;
+
       columnMapping = {
-        nameIndex: nameIndex,
+        firstNameIndex: firstNameIndex === -1 ? null : firstNameIndex,
+        lastNameIndex: lastNameIndex === -1 ? null : lastNameIndex,
+        nameIndex: nameIndex === -1 ? null : nameIndex,
         phoneIndex: phoneIndex === -1 ? null : phoneIndex,
         emailIndex: emailIndex === -1 ? null : emailIndex,
-        hasHeader: firstRow.some(
-          (cell) =>
-            String(cell || "")
-              .toLowerCase()
-              .includes("name") ||
-            String(cell || "")
-              .toLowerCase()
-              .includes("phone") ||
-            String(cell || "")
-              .toLowerCase()
-              .includes("email")
-        ),
+        hasHeader: firstRow.some((cell) => {
+          const val = String(cell || "").toLowerCase();
+          return (
+            val.includes("name") ||
+            val.includes("phone") ||
+            val.includes("email") ||
+            val.includes("first") ||
+            val.includes("last") ||
+            val.includes("group") ||
+            val.includes("table")
+          );
+        }),
         groupIndicators: {
-          hasGroups: false,
-          groupColumnIndex: null,
-          groupType: null,
-          description: "No groups detected due to AI parsing error",
+          hasGroups: hasGrouping,
+          groupColumnIndex: hasGrouping ? groupColumnIndex : null,
+          groupType: groupType,
+          description: hasGrouping
+            ? `Groups detected in column ${groupColumnIndex + 1} (${
+                firstRow[groupColumnIndex] || "unnamed"
+              })`
+            : "No groups detected due to AI parsing error",
+          confidence: hasGrouping ? "medium" : undefined,
+          tableOptimized: groupType === "table_explicit",
         },
       };
     }
 
-    const { nameIndex, phoneIndex, emailIndex, hasHeader, groupIndicators } =
-      columnMapping;
+    const {
+      firstNameIndex,
+      lastNameIndex,
+      nameIndex,
+      phoneIndex,
+      emailIndex,
+      hasHeader,
+      groupIndicators,
+    } = columnMapping;
 
-    if (nameIndex === null || nameIndex === undefined || nameIndex < 0) {
+    // Validate that we have at least one way to get names
+    if (
+      (firstNameIndex === null ||
+        firstNameIndex === undefined ||
+        firstNameIndex < 0) &&
+      (lastNameIndex === null ||
+        lastNameIndex === undefined ||
+        lastNameIndex < 0) &&
+      (nameIndex === null || nameIndex === undefined || nameIndex < 0)
+    ) {
       return NextResponse.json({
         success: false,
         error:
-          'Could not identify the "name" column in the file. Please ensure there is a column for guest names.',
+          'Could not identify name columns in the file. Please ensure there are columns for guest names (either "firstName/lastName" or "name").',
       });
     }
 
@@ -341,24 +538,74 @@ Examples of group indicators:
 
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
-      if (!row || !Array.isArray(row) || nameIndex >= row.length) continue;
+      if (!row || !Array.isArray(row)) continue;
 
-      const name = String(row[nameIndex] || "").trim();
-      if (!name || name.length === 0) continue;
+      let firstName = "";
+      let lastName = "";
+
+      // Extract names based on available columns
+      if (
+        firstNameIndex !== null &&
+        firstNameIndex !== undefined &&
+        firstNameIndex >= 0 &&
+        firstNameIndex < row.length
+      ) {
+        firstName = String(row[firstNameIndex] || "").trim();
+      }
+
+      if (
+        lastNameIndex !== null &&
+        lastNameIndex !== undefined &&
+        lastNameIndex >= 0 &&
+        lastNameIndex < row.length
+      ) {
+        lastName = String(row[lastNameIndex] || "").trim();
+      }
+
+      // If no separate firstName/lastName, try to parse from name column
+      if (
+        !firstName &&
+        !lastName &&
+        nameIndex !== null &&
+        nameIndex !== undefined &&
+        nameIndex >= 0 &&
+        nameIndex < row.length
+      ) {
+        const fullName = String(row[nameIndex] || "").trim();
+        if (fullName) {
+          const nameParts = fullName.split(/\s+/);
+          firstName = nameParts[0] || "";
+          lastName = nameParts.slice(1).join(" ") || "";
+        }
+      }
+
+      // Skip if no name data
+      if (!firstName && !lastName) continue;
 
       const guest: ProcessedGuest = {
-        name: name,
+        firstName: firstName,
+        lastName: lastName,
         phoneNumber:
-          phoneIndex !== null && phoneIndex !== undefined && row[phoneIndex]
+          phoneIndex !== null &&
+          phoneIndex !== undefined &&
+          phoneIndex >= 0 &&
+          phoneIndex < row.length &&
+          row[phoneIndex]
             ? String(row[phoneIndex]).trim()
             : undefined,
         email:
-          emailIndex !== null && emailIndex !== undefined && row[emailIndex]
+          emailIndex !== null &&
+          emailIndex !== undefined &&
+          emailIndex >= 0 &&
+          emailIndex < row.length &&
+          row[emailIndex]
             ? String(row[emailIndex]).trim()
             : undefined,
         groupInfo:
           groupIndicators?.hasGroups &&
           groupIndicators?.groupColumnIndex !== null &&
+          groupIndicators.groupColumnIndex >= 0 &&
+          groupIndicators.groupColumnIndex < row.length &&
           row[groupIndicators.groupColumnIndex]
             ? String(row[groupIndicators.groupColumnIndex]).trim()
             : undefined,
@@ -391,82 +638,174 @@ Examples of group indicators:
     let detectedGroups: GuestGroup[] = [];
 
     if (groupIndicators?.hasGroups && processedGuests.length > 1) {
-      try {
-        const groupAnalysisPrompt = processedGuests
-          .map(
-            (guest) =>
-              `${guest.name}${guest.groupInfo ? ` | ${guest.groupInfo}` : ""}`
-          )
-          .join("\n");
+      // First try simple grouping if we have explicit group data
+      const guestsWithGroups = processedGuests.filter(
+        (guest) => guest.groupInfo
+      );
 
-        const groupResponse = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: `You are an event planner assistant. Create logical guest groups from the provided data.
+      if (guestsWithGroups.length > 0) {
+        // Simple group creation based on groupInfo
+        const groupMap = new Map<string, ProcessedGuest[]>();
 
-IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
+        guestsWithGroups.forEach((guest) => {
+          const groupId = guest.groupInfo!;
+          if (!groupMap.has(groupId)) {
+            groupMap.set(groupId, []);
+          }
+          groupMap.get(groupId)!.push(guest);
+        });
 
-RULES:
-1. Group guests who clearly belong together (same last names, explicit group indicators, +1s)
-2. Keep groups reasonable in size (2-8 people typically)
-3. Generate meaningful group names
-4. Suggest appropriate table sizes
+        // Create groups from the map
+        groupMap.forEach((members, groupId) => {
+          if (members.length >= 2) {
+            // Only create groups with 2+ members
+            const groupName =
+              groupIndicators.groupType === "table_explicit"
+                ? `Table ${groupId}`
+                : `Group ${groupId}`;
 
-Return ONLY this JSON structure:
+            detectedGroups.push({
+              id: `group_${groupId}`,
+              name: groupName,
+              members: members.map((m) => `${m.firstName} ${m.lastName}`),
+              suggestedTableSize: Math.min(Math.max(members.length, 4), 8),
+              groupType:
+                (groupIndicators.groupType as
+                  | "table_explicit"
+                  | "group_id"
+                  | "pattern"
+                  | "family"
+                  | "corporate"
+                  | "plus_one") || "group_id",
+              confidence: "high",
+              reasoning: `Explicit group assignment: ${groupId}`,
+            });
+          }
+        });
+      }
+
+      // If simple grouping worked, skip AI analysis
+      if (detectedGroups.length > 0) {
+        console.log(
+          `Created ${detectedGroups.length} groups using explicit group data`
+        );
+      } else {
+        // Fallback to AI analysis
+        try {
+          const groupAnalysisPrompt = processedGuests
+            .map(
+              (guest) =>
+                `${guest.firstName} ${guest.lastName}${
+                  guest.groupInfo ? ` | ${guest.groupInfo}` : ""
+                }`
+            )
+            .join("\n");
+
+          const groupResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `You are a specialized table seating optimization AI. Your EXCLUSIVE PURPOSE is to create optimal table groupings for event seating arrangements. Focus on EXPLICIT table identifiers above all else.
+
+CRITICAL: Return ONLY valid JSON array. No explanations, markdown, or additional text.
+
+TABLE GROUPING METHODOLOGY (STRICT PRIORITY ORDER):
+
+1. **HIGHEST PRIORITY - EXPLICIT TABLE/GROUP DATA:**
+   If guests have explicit table numbers, group IDs, or party identifiers:
+   - Group by exact table number/ID matches
+   - Preserve existing table assignments
+   - Use provided group codes/IDs as-is
+   - HIGH confidence for these groups
+
+2. **MEDIUM PRIORITY - CLEAR NUMERICAL/ALPHABETICAL PATTERNS:**
+   For consistent grouping patterns (1,1,1,2,2,2 or A,A,B,B):
+   - Group guests with matching identifiers
+   - Create tables based on these patterns
+   - MEDIUM confidence
+
+3. **LOW PRIORITY - RELATIONSHIP-BASED GROUPING:**
+   Only if NO explicit identifiers exist:
+   - Same surnames (families at same table)
+   - Plus-one indicators (keep companions together)
+   - Corporate affiliations (colleagues together)
+   - LOW confidence
+
+OPTIMAL TABLE SIZING FOR EVENTS:
+- 2-4 guests: Intimate tables (couples, small families)
+- 4-6 guests: Standard round tables (most common)
+- 6-8 guests: Large round tables (extended groups)
+- 8-10 guests: Maximum for conversation flow
+- Split groups larger than 10 into multiple tables
+
+TABLE-OPTIMIZED NAMING:
+- Explicit tables: "Table [Number]", "Group [ID]", "[Party Name] Table"
+- Pattern-based: "Table [X] Group", "Party [ID]"
+- Relationship-based: "[Surname] Family Table", "[Company] Table"
+
+JSON STRUCTURE FOR TABLE ASSIGNMENTS:
 [
   {
-    "id": "unique_id",
-    "name": "descriptive_group_name", 
-    "members": ["guest_name1", "guest_name2"],
-    "suggestedTableSize": number
+    "id": "table_[number]" | "group_[id]",
+    "name": "table_focused_name",
+    "members": ["guest_names_exactly_as_provided"],
+    "suggestedTableSize": number,
+    "groupType": "table_explicit" | "group_id" | "pattern" | "family" | "corporate" | "plus_one",
+    "confidence": "high" | "medium" | "low",
+    "reasoning": "table_assignment_justification"
   }
 ]
 
-Only return groups with 2+ members. Single guests will be handled separately.`,
-            },
-            {
-              role: "user",
-              content: `Group these guests based on the indicators:\n${groupAnalysisPrompt}\n\nGroup type: ${groupIndicators.groupType}\nDescription: ${groupIndicators.description}`,
-            },
-          ],
-          temperature: 0,
-          max_tokens: 1000,
-        });
+CRITICAL RULES:
+- If explicit table/group data exists, ALWAYS use it with HIGH confidence
+- Optimal table sizes: 4-8 guests per table
+- Keep existing table assignments intact
+- Split oversized groups into multiple tables
+- Minimum 2 guests per table group`,
+              },
+              {
+                role: "user",
+                content: `Group these guests based on the indicators:\n${groupAnalysisPrompt}\n\nGroup type: ${groupIndicators.groupType}\nDescription: ${groupIndicators.description}`,
+              },
+            ],
+            temperature: 0,
+            max_tokens: 1000,
+          });
 
-        const groupContent = groupResponse.choices[0]?.message?.content;
-        if (groupContent) {
-          let cleanedGroupContent = groupContent.trim();
+          const groupContent = groupResponse.choices[0]?.message?.content;
+          if (groupContent) {
+            let cleanedGroupContent = groupContent.trim();
 
-          // Remove markdown formatting
-          if (cleanedGroupContent.startsWith("```")) {
-            cleanedGroupContent = cleanedGroupContent
-              .replace(/^```(?:json)?\s*/, "")
-              .replace(/\s*```$/, "");
+            // Remove markdown formatting
+            if (cleanedGroupContent.startsWith("```")) {
+              cleanedGroupContent = cleanedGroupContent
+                .replace(/^```(?:json)?\s*/, "")
+                .replace(/\s*```$/, "");
+            }
+
+            // Try to find JSON array within the response
+            const arrayMatch = cleanedGroupContent.match(/\[[\s\S]*\]/);
+            if (arrayMatch) {
+              cleanedGroupContent = arrayMatch[0];
+            }
+
+            const groupsData = JSON.parse(cleanedGroupContent);
+            if (Array.isArray(groupsData)) {
+              detectedGroups = groupsData.filter(
+                (group) =>
+                  group &&
+                  group.members &&
+                  Array.isArray(group.members) &&
+                  group.members.length >= 2
+              );
+            }
           }
-
-          // Try to find JSON array within the response
-          const arrayMatch = cleanedGroupContent.match(/\[[\s\S]*\]/);
-          if (arrayMatch) {
-            cleanedGroupContent = arrayMatch[0];
-          }
-
-          const groupsData = JSON.parse(cleanedGroupContent);
-          if (Array.isArray(groupsData)) {
-            detectedGroups = groupsData.filter(
-              (group) =>
-                group &&
-                group.members &&
-                Array.isArray(group.members) &&
-                group.members.length >= 2
-            );
-          }
+        } catch (error) {
+          console.error("Error in group detection:", error);
+          // Continue without groups if AI fails
+          detectedGroups = [];
         }
-      } catch (error) {
-        console.error("Error in group detection:", error);
-        // Continue without groups if AI fails
-        detectedGroups = [];
       }
     }
 

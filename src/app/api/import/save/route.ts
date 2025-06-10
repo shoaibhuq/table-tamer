@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guestService, eventService } from "@/lib/firestore";
+import { guestService, eventService, tableService } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
 
 interface ProcessedGuest {
-  name: string;
+  firstName: string;
+  lastName: string;
   phoneNumber?: string;
   email?: string;
   groupInfo?: string;
@@ -11,11 +12,14 @@ interface ProcessedGuest {
 }
 
 interface GuestToCreate {
-  name: string;
+  name: string; // Keep for backward compatibility
+  firstName: string;
+  lastName: string;
   eventId: string;
   phoneNumber?: string;
   email?: string;
   notes?: string;
+  tableId?: string; // Add tableId for automatic assignment
 }
 
 interface GuestGroup {
@@ -24,6 +28,7 @@ interface GuestGroup {
   members: string[];
   suggestedTableSize?: number;
   selected?: boolean;
+  autoCreateTable?: boolean; // New field to control table creation
 }
 
 export async function POST(req: NextRequest) {
@@ -36,7 +41,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { eventId, guests, groups } = await req.json();
+    const { eventId, guests, groups, autoTableAssignment } = await req.json();
 
     if (!eventId) {
       return NextResponse.json({
@@ -61,12 +66,71 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Create tables for selected groups if auto table assignment is enabled
+    const createdTables: { [groupId: string]: string } = {};
+    const createdTablesByName: { [groupName: string]: string } = {};
+    let tablesCreated = 0;
+
+    if (autoTableAssignment?.createTables && groups && Array.isArray(groups)) {
+      const groupsToCreateTables = groups.filter(
+        (group: GuestGroup) => group.selected && group.autoCreateTable
+      );
+
+      for (const group of groupsToCreateTables) {
+        try {
+          // Get existing tables count to determine table number
+          const existingTables = await tableService.list(userId, eventId);
+          const nextTableNumber = existingTables.length + tablesCreated + 1;
+
+          // Create table with group name or default naming
+          let tableName = group.name;
+          if (tableName.toLowerCase().includes("table")) {
+            // If group name already contains "table", use as is
+          } else {
+            // If it's a family name or other group type, prepend "Table"
+            tableName = `Table ${nextTableNumber} (${group.name})`;
+          }
+
+          const tableId = await tableService.create(userId, {
+            name: tableName,
+            capacity: group.suggestedTableSize || 8,
+            color: "#3B82F6", // Default blue color
+            eventId: eventId,
+          });
+
+          // Store table ID by both group name and group ID for flexible lookup
+          createdTablesByName[group.name] = tableId;
+
+          // Extract the group ID from the group ID field (e.g., "group_1" -> "1")
+          const groupId = group.id.replace(/^group_/, "");
+          createdTables[groupId] = tableId;
+
+          console.log(
+            `Created table "${tableName}" (ID: ${tableId}) for group "${group.name}" (groupId: ${groupId})`
+          );
+
+          tablesCreated++;
+        } catch (error) {
+          console.error(
+            `Failed to create table for group ${group.name}:`,
+            error
+          );
+        }
+      }
+    }
+
     // Process guests for database insertion
     const guestsToCreate = guests
       .filter((guest: ProcessedGuest) => guest.selected !== false)
       .map((guest: ProcessedGuest) => {
+        const firstName = guest.firstName?.trim() || "";
+        const lastName = guest.lastName?.trim() || "";
+        const fullName = `${firstName} ${lastName}`.trim();
+
         const guestData: GuestToCreate = {
-          name: guest.name.trim(),
+          name: fullName, // Keep for backward compatibility
+          firstName: firstName,
+          lastName: lastName,
           eventId: eventId,
         };
 
@@ -79,13 +143,58 @@ export async function POST(req: NextRequest) {
           guestData.email = guest.email.trim();
         }
 
+        // Handle group assignment and table assignment
         if (guest.groupInfo?.trim()) {
-          guestData.notes = `Group: ${guest.groupInfo.trim()}`;
+          const groupInfo = guest.groupInfo.trim();
+          guestData.notes = `Group: ${groupInfo}`;
+
+          // If auto table assignment is enabled and this guest's group has a table
+          if (autoTableAssignment?.createTables) {
+            // Try to find table by group ID first (direct match)
+            let tableId = createdTables[groupInfo];
+
+            // If not found, try by group name lookup
+            if (!tableId) {
+              // Look for a group name that might match this groupInfo
+              const matchingGroupName = Object.keys(createdTablesByName).find(
+                (name) => {
+                  // Try exact match first
+                  if (name.includes(groupInfo)) return true;
+                  // Try extracting number from group name and compare
+                  const nameMatch = name.match(/(\d+)/);
+                  if (nameMatch && nameMatch[1] === groupInfo) return true;
+                  return false;
+                }
+              );
+
+              if (matchingGroupName) {
+                tableId = createdTablesByName[matchingGroupName];
+              }
+            }
+
+            if (tableId) {
+              guestData.tableId = tableId;
+              console.log(
+                `Assigned guest "${guestData.name}" to table ${tableId} (group: ${groupInfo})`
+              );
+            } else {
+              console.log(
+                `No table found for guest "${guestData.name}" with group: ${groupInfo}`
+              );
+              console.log(
+                `Available tables:`,
+                Object.keys(createdTables),
+                Object.keys(createdTablesByName)
+              );
+            }
+          }
         }
 
         return guestData;
       })
-      .filter((guest) => guest.name.length > 0);
+      .filter(
+        (guest) => guest.firstName.length > 0 || guest.lastName.length > 0
+      );
 
     if (guestsToCreate.length === 0) {
       return NextResponse.json({
@@ -133,29 +242,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Store group information if provided (for future enhancement)
-    // Note: Currently we don't have a groups table, so we'll store this info in guest notes
-    if (groups && Array.isArray(groups) && groups.length > 0) {
-      const selectedGroups = groups.filter(
-        (group: GuestGroup) => group.selected !== false
-      );
-
-      // In future, we could create a groups table and link guests to groups
-      // For now, the group info is already stored in guest notes
-      console.log(
-        `Processed ${selectedGroups.length} groups for future implementation`
-      );
-    }
+    // Calculate assignment statistics
+    const assignedGuests = successfulGuests.filter(
+      (guest) => guest.tableId
+    ).length;
 
     const responseMessage =
       successfulGuests.length === guestsToCreate.length
-        ? `Successfully imported ${successfulGuests.length} guests.`
-        : `Imported ${successfulGuests.length} out of ${guestsToCreate.length} guests. ${failedGuests.length} failed.`;
+        ? `Successfully imported ${successfulGuests.length} guests.${
+            tablesCreated > 0
+              ? ` Created ${tablesCreated} tables and assigned ${assignedGuests} guests.`
+              : ""
+          }`
+        : `Imported ${successfulGuests.length} out of ${
+            guestsToCreate.length
+          } guests. ${failedGuests.length} failed.${
+            tablesCreated > 0
+              ? ` Created ${tablesCreated} tables and assigned ${assignedGuests} guests.`
+              : ""
+          }`;
 
     return NextResponse.json({
       success: true,
       savedCount: successfulGuests.length,
       failedCount: failedGuests.length,
+      tablesCreated: tablesCreated,
+      guestsAssigned: assignedGuests,
       failedGuests: failedGuests,
       message: responseMessage,
     });

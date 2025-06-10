@@ -170,7 +170,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (ids) {
-      // Bulk delete
+      // Bulk delete - now uses optimized parallel processing
       const guestIds = ids.split(",");
       await guestService.delete(userId, guestIds);
       return NextResponse.json({

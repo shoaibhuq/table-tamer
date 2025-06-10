@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
@@ -12,150 +12,32 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Calendar,
-  Upload,
   Users,
   Settings,
   LogOut,
   Mail,
   Phone,
   CheckCircle,
-  Search,
   Sparkles,
   ArrowRight,
   TrendingUp,
   Clock,
-  Star,
   Zap,
-  UserPlus,
-  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { authenticatedJsonFetch } from "@/lib/api";
-
-interface Event {
-  id: string;
-  name: string;
-}
 
 export default function DashboardPage() {
   const { user, userProfile, loading, logout } = useAuth();
   const router = useRouter();
-
-  // Guest addition state
-  const [addGuestDialogOpen, setAddGuestDialogOpen] = useState(false);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>("");
-  const [guestName, setGuestName] = useState("");
-  const [guestEmail, setGuestEmail] = useState("");
-  const [guestPhone, setGuestPhone] = useState("");
-  const [addingGuest, setAddingGuest] = useState(false);
-  const [guestError, setGuestError] = useState<string | null>(null);
-  const [guestSuccess, setGuestSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push("/auth/login");
     }
   }, [user, loading, router]);
-
-  // Fetch events when dialog opens
-  useEffect(() => {
-    if (addGuestDialogOpen && user) {
-      fetchEvents();
-    }
-  }, [addGuestDialogOpen, user]);
-
-  const fetchEvents = async () => {
-    try {
-      const response = (await authenticatedJsonFetch("/api/events")) as {
-        success: boolean;
-        events?: Event[];
-        error?: string;
-      };
-      if (response.success && response.events) {
-        setEvents(response.events);
-      }
-    } catch (error) {
-      console.error("Error fetching events:", error);
-    }
-  };
-
-  const handleAddGuest = async () => {
-    if (!selectedEventId || !guestName.trim()) {
-      setGuestError("Please select an event and enter a guest name");
-      return;
-    }
-
-    setAddingGuest(true);
-    setGuestError(null);
-    setGuestSuccess(null);
-
-    try {
-      const guestData: {
-        name: string;
-        eventId: string;
-        email?: string;
-        phoneNumber?: string;
-      } = {
-        name: guestName.trim(),
-        eventId: selectedEventId,
-      };
-
-      // Only add fields if they have values
-      if (guestEmail.trim()) {
-        guestData.email = guestEmail.trim();
-      }
-      if (guestPhone.trim()) {
-        guestData.phoneNumber = guestPhone.trim();
-      }
-
-      const response = (await authenticatedJsonFetch("/api/guests", {
-        method: "POST",
-        body: JSON.stringify(guestData),
-      })) as { success: boolean; error?: string };
-
-      if (response.success) {
-        setGuestSuccess("Guest added successfully!");
-        // Reset form
-        setGuestName("");
-        setGuestEmail("");
-        setGuestPhone("");
-        setSelectedEventId("");
-        // Close dialog after a short delay
-        setTimeout(() => {
-          setAddGuestDialogOpen(false);
-          setGuestSuccess(null);
-        }, 1500);
-      } else {
-        setGuestError(response.error || "Failed to add guest");
-      }
-    } catch (error) {
-      console.error("Error adding guest:", error);
-      setGuestError("An unexpected error occurred");
-    } finally {
-      setAddingGuest(false);
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -242,156 +124,6 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-
-          {/* Add Guest Dialog */}
-          <Dialog
-            open={addGuestDialogOpen}
-            onOpenChange={setAddGuestDialogOpen}
-          >
-            <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
-              <DialogHeader>
-                <div className="flex items-center mb-2">
-                  <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl flex items-center justify-center mr-3">
-                    <UserPlus className="w-6 h-6 text-white" />
-                  </div>
-                  <DialogTitle className="text-2xl font-bold text-gray-900">
-                    Add Guest Manually
-                  </DialogTitle>
-                </div>
-                <DialogDescription className="text-gray-600 text-lg">
-                  Add a single guest to your event guest list
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="py-6 space-y-6">
-                {/* Event Selection */}
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="event-select"
-                    className="text-sm font-semibold text-gray-700"
-                  >
-                    Select Event *
-                  </Label>
-                  <Select
-                    value={selectedEventId}
-                    onValueChange={setSelectedEventId}
-                  >
-                    <SelectTrigger className="border-2 border-gray-200 focus:border-rose-400 rounded-xl">
-                      <SelectValue placeholder="Choose an event..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {events.map((event) => (
-                        <SelectItem key={event.id} value={event.id}>
-                          {event.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Guest Name */}
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="guest-name"
-                    className="text-sm font-semibold text-gray-700"
-                  >
-                    Guest Name *
-                  </Label>
-                  <Input
-                    id="guest-name"
-                    placeholder="Enter full name..."
-                    value={guestName}
-                    onChange={(e) => setGuestName(e.target.value)}
-                    className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
-                  />
-                </div>
-
-                {/* Guest Email */}
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="guest-email"
-                    className="text-sm font-semibold text-gray-700"
-                  >
-                    Email (Optional)
-                  </Label>
-                  <Input
-                    id="guest-email"
-                    type="email"
-                    placeholder="guest@example.com"
-                    value={guestEmail}
-                    onChange={(e) => setGuestEmail(e.target.value)}
-                    className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
-                  />
-                </div>
-
-                {/* Guest Phone */}
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="guest-phone"
-                    className="text-sm font-semibold text-gray-700"
-                  >
-                    Phone Number (Optional)
-                  </Label>
-                  <Input
-                    id="guest-phone"
-                    type="tel"
-                    placeholder="+1 (555) 123-4567"
-                    value={guestPhone}
-                    onChange={(e) => setGuestPhone(e.target.value)}
-                    className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
-                  />
-                </div>
-
-                {/* Error Message */}
-                {guestError && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center">
-                    <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-                    <p className="text-red-700 font-medium">{guestError}</p>
-                  </div>
-                )}
-
-                {/* Success Message */}
-                {guestSuccess && (
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center">
-                    <CheckCircle className="w-5 h-5 text-emerald-600 mr-2" />
-                    <p className="text-emerald-700 font-medium">
-                      {guestSuccess}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <DialogFooter className="gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => setAddGuestDialogOpen(false)}
-                  className="border-2 border-gray-300 hover:border-gray-400 px-6"
-                  disabled={addingGuest}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAddGuest}
-                  disabled={
-                    addingGuest || !selectedEventId || !guestName.trim()
-                  }
-                  className="bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
-                >
-                  {addingGuest ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Adding Guest...
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Add Guest
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </AppLayout>
     );
@@ -406,47 +138,19 @@ export default function DashboardPage() {
       title: "Create Event",
       description: "Start planning a new event",
       icon: Calendar,
-      href: "/events",
+      href: "/events/create",
       gradient: "from-blue-500 to-blue-600",
       bgColor: "bg-blue-50/80",
       count: "Start Fresh",
     },
     {
-      title: "Add Guest",
-      description: "Manually add a single guest",
-      icon: UserPlus,
-      action: () => setAddGuestDialogOpen(true),
-      gradient: "from-rose-500 to-pink-600",
-      bgColor: "bg-rose-50/80",
-      count: "Quick Add",
-    },
-    {
-      title: "Import Guests",
-      description: "Upload a guest list",
-      icon: Upload,
+      title: "Manage Events",
+      description: "View and manage your existing events",
+      icon: Settings,
       href: "/events",
-      gradient: "from-emerald-500 to-emerald-600",
-      bgColor: "bg-emerald-50/80",
-      count: "Bulk Upload",
-    },
-    {
-      title: "Assign Tables",
-      description: "Manage seating arrangements",
-      icon: Users,
-      href: "/assign",
       gradient: "from-purple-500 to-purple-600",
       bgColor: "bg-purple-50/80",
-      count: "AI Powered",
-    },
-    {
-      title: "Guest Lookup",
-      description: "Find table assignments",
-      icon: Search,
-      href: "/guest-view",
-      gradient: "from-orange-500 to-orange-600",
-      bgColor: "bg-orange-50/80",
-      count: "Public View",
-      openInNewTab: true,
+      count: "View All",
     },
   ];
 
@@ -474,14 +178,6 @@ export default function DashboardPage() {
       icon: TrendingUp,
       color: "text-purple-600",
       bgColor: "bg-purple-100",
-    },
-    {
-      title: "Success Rate",
-      value: "98%",
-      change: "Perfect planning",
-      icon: Star,
-      color: "text-yellow-600",
-      bgColor: "bg-yellow-100",
     },
   ];
 
@@ -562,7 +258,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {stats.map((stat, index) => (
               <Card
                 key={index}
@@ -613,91 +309,43 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid md:grid-cols-2 gap-6">
-                    {quickActions.map((action, index) => {
-                      if (action.href) {
-                        return (
-                          <Link
-                            key={index}
-                            href={action.href}
-                            target={action.openInNewTab ? "_blank" : undefined}
-                            rel={
-                              action.openInNewTab
-                                ? "noopener noreferrer"
-                                : undefined
-                            }
-                            className="group block cursor-pointer"
-                          >
-                            <div
-                              className={`relative p-6 rounded-2xl ${action.bgColor} border border-white/50 hover:shadow-xl transition-all duration-500 overflow-hidden group-hover:scale-105`}
-                            >
-                              <div
-                                className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`}
-                              ></div>
-                              <div className="relative z-10">
-                                <div
-                                  className={`w-12 h-12 bg-gradient-to-br ${action.gradient} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg`}
-                                >
-                                  <action.icon className="w-6 h-6 text-white" />
-                                </div>
-                                <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-blue-700 transition-colors duration-300">
-                                  {action.title}
-                                </h3>
-                                <p className="text-gray-600 mb-3 leading-relaxed">
-                                  {action.description}
-                                </p>
-                                <div className="flex items-center justify-between">
-                                  <Badge
-                                    variant="secondary"
-                                    className="bg-white/80 text-gray-600"
-                                  >
-                                    {action.count}
-                                  </Badge>
-                                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all duration-300" />
-                                </div>
-                              </div>
-                            </div>
-                          </Link>
-                        );
-                      } else {
-                        return (
+                    {quickActions.map((action, index) => (
+                      <Link
+                        key={index}
+                        href={action.href}
+                        className="group block cursor-pointer"
+                      >
+                        <div
+                          className={`relative p-6 rounded-2xl ${action.bgColor} border border-white/50 hover:shadow-xl transition-all duration-500 overflow-hidden group-hover:scale-105`}
+                        >
                           <div
-                            key={index}
-                            className="group block cursor-pointer"
-                            onClick={action.action}
-                          >
+                            className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`}
+                          ></div>
+                          <div className="relative z-10">
                             <div
-                              className={`relative p-6 rounded-2xl ${action.bgColor} border border-white/50 hover:shadow-xl transition-all duration-500 overflow-hidden group-hover:scale-105`}
+                              className={`w-12 h-12 bg-gradient-to-br ${action.gradient} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg`}
                             >
-                              <div
-                                className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`}
-                              ></div>
-                              <div className="relative z-10">
-                                <div
-                                  className={`w-12 h-12 bg-gradient-to-br ${action.gradient} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg`}
-                                >
-                                  <action.icon className="w-6 h-6 text-white" />
-                                </div>
-                                <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-blue-700 transition-colors duration-300">
-                                  {action.title}
-                                </h3>
-                                <p className="text-gray-600 mb-3 leading-relaxed">
-                                  {action.description}
-                                </p>
-                                <div className="flex items-center justify-between">
-                                  <Badge
-                                    variant="secondary"
-                                    className="bg-white/80 text-gray-600"
-                                  >
-                                    {action.count}
-                                  </Badge>
-                                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all duration-300" />
-                                </div>
-                              </div>
+                              <action.icon className="w-6 h-6 text-white" />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-blue-700 transition-colors duration-300">
+                              {action.title}
+                            </h3>
+                            <p className="text-gray-600 mb-3 leading-relaxed">
+                              {action.description}
+                            </p>
+                            <div className="flex items-center justify-between">
+                              <Badge
+                                variant="secondary"
+                                className="bg-white/80 text-gray-600"
+                              >
+                                {action.count}
+                              </Badge>
+                              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all duration-300" />
                             </div>
                           </div>
-                        );
-                      }
-                    })}
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -775,101 +423,8 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Guest Management */}
+            {/* Profile Card */}
             <div className="lg:col-span-1">
-              <Card className="shadow-2xl border-0 bg-gradient-to-br from-white to-rose-50/50 backdrop-blur-sm mb-8">
-                <CardHeader className="pb-4">
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl flex items-center justify-center mr-3">
-                      <Users className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-2xl font-bold text-gray-900">
-                        Guest Management
-                      </CardTitle>
-                      <CardDescription className="text-gray-600">
-                        Manage your guest lists
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Add Guest Button */}
-                  <Button
-                    onClick={() => setAddGuestDialogOpen(true)}
-                    className="w-full bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-lg hover:shadow-xl transition-all duration-300 group"
-                  >
-                    <UserPlus className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                    Add Guest Manually
-                  </Button>
-
-                  {/* Guest Actions */}
-                  <div className="space-y-3">
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="w-full border-2 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50 transition-all duration-300 group"
-                    >
-                      <Link href="/events">
-                        <Upload className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                        Import Guest List
-                      </Link>
-                    </Button>
-
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="w-full border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-300 group"
-                    >
-                      <Link href="/assign">
-                        <Users className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                        Assign Tables
-                      </Link>
-                    </Button>
-
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="w-full border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 transition-all duration-300 group"
-                    >
-                      <Link href="/guest-view" target="_blank">
-                        <Search className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                        Guest Lookup
-                      </Link>
-                    </Button>
-                  </div>
-
-                  {/* Quick Stats */}
-                  <div className="pt-4 border-t border-gray-200/50 space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 flex items-center">
-                        <Users className="w-4 h-4 mr-1" />
-                        Total Guests
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className="bg-blue-100 text-blue-700"
-                      >
-                        1,248
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500 flex items-center">
-                        <Calendar className="w-4 h-4 mr-1" />
-                        Active Events
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className="bg-emerald-100 text-emerald-700"
-                      >
-                        12
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Profile Card */}
               <Card className="shadow-2xl border-0 bg-gradient-to-br from-white to-purple-50/50 backdrop-blur-sm sticky top-8">
                 <CardHeader className="text-center pb-4">
                   <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">

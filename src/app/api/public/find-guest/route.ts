@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guestService, tableService } from "@/lib/firestore";
+import {
+  guestService,
+  tableService,
+  getGuestFullName,
+  getGuestDisplayName,
+  matchesGuestSearch,
+} from "@/lib/firestore";
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,11 +34,9 @@ export async function GET(req: NextRequest) {
         const allGuests = await guestService.listPublic(eventId);
 
         const suggestions = allGuests
-          .filter((guest) =>
-            guest.name.toLowerCase().includes(name.toLowerCase())
-          )
+          .filter((guest) => matchesGuestSearch(guest, name))
           .slice(0, 10) // Limit to 10 suggestions
-          .map((guest) => guest.name);
+          .map((guest) => getGuestDisplayName(guest)); // Show enhanced display name with contact info
 
         return NextResponse.json({
           success: true,
@@ -58,10 +62,8 @@ export async function GET(req: NextRequest) {
     try {
       const allGuests = await guestService.listPublic(eventId);
 
-      // Search for guest by name (case-insensitive, partial match)
-      const guest = allGuests.find((g) =>
-        g.name.toLowerCase().includes(name.trim().toLowerCase())
-      );
+      // Search for guest using enhanced search function
+      const guest = allGuests.find((g) => matchesGuestSearch(g, name.trim()));
 
       if (!guest) {
         return NextResponse.json({
@@ -88,8 +90,11 @@ export async function GET(req: NextRequest) {
         success: true,
         guest: {
           id: guest.id,
-          name: guest.name,
+          name: getGuestFullName(guest), // Use helper function for display name
+          firstName: guest.firstName,
+          lastName: guest.lastName,
           phoneNumber: guest.phoneNumber,
+          email: guest.email,
           table,
         },
       });

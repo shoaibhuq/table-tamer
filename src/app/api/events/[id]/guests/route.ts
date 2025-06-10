@@ -27,10 +27,10 @@ export async function DELETE(
       );
     }
 
-    // Get all guests for this event
-    const guests = await guestService.list(userId, eventId);
+    // Use the optimized deleteByEvent method for much faster performance
+    const removedCount = await guestService.deleteByEvent(userId, eventId);
 
-    if (guests.length === 0) {
+    if (removedCount === 0) {
       return NextResponse.json({
         success: true,
         message: "No guests to remove",
@@ -38,14 +38,10 @@ export async function DELETE(
       });
     }
 
-    // Remove all guests from this event
-    const guestIds = guests.map((guest) => guest.id);
-    await guestService.delete(userId, guestIds);
-
     return NextResponse.json({
       success: true,
-      message: `Successfully removed ${guests.length} guests from the event`,
-      removedCount: guests.length,
+      message: `Successfully removed ${removedCount} guests from the event`,
+      removedCount: removedCount,
     });
   } catch (error) {
     console.error("Error removing all guests:", error);

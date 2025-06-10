@@ -14,8 +14,8 @@ export default function HomePage() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        // Authenticated users go to events page
-        router.push("/events");
+        // Authenticated users go to dashboard
+        router.push("/dashboard");
       } else {
         // Unauthenticated users go to landing page
         router.push("/landing");

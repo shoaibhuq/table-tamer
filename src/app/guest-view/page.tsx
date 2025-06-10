@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,25 +18,76 @@ import {
 interface GuestResult {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   phoneNumber: string | null;
+  email?: string | null;
   table: {
     id: string;
     number: number;
   } | null;
 }
 
+interface SuggestionsResponse {
+  success: boolean;
+  suggestions?: string[];
+  error?: string;
+}
+
 export default function GuestViewPage() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
   const [searchName, setSearchName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guestResult, setGuestResult] = useState<GuestResult | null>(null);
   const [searched, setSearched] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
 
   // Animate welcome message
   useEffect(() => {
     const timer = setTimeout(() => setShowWelcome(false), 3000);
     return () => clearTimeout(timer);
+  }, []);
+
+  const fetchSuggestions = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    try {
+      // Note: This would need an eventId in a real implementation
+      // For now, we'll use a mock API call that would need to be implemented
+      const response = await fetch(
+        `/api/public/find-guest?eventId=default&name=${encodeURIComponent(
+          query
+        )}&autocomplete=true`
+      );
+      const data: SuggestionsResponse = await response.json();
+
+      if (data.success && data.suggestions) {
+        setSuggestions(data.suggestions);
+        setShowSuggestions(data.suggestions.length > 0);
+        setSelectedSuggestionIndex(-1);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setSelectedSuggestionIndex(-1);
+      }
+    } catch (error) {
+      console.error("Error fetching suggestions:", error);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setSelectedSuggestionIndex(-1);
+    }
   }, []);
 
   const handleSearch = async () => {
@@ -48,6 +99,7 @@ export default function GuestViewPage() {
     setLoading(true);
     setError(null);
     setGuestResult(null);
+    setShowSuggestions(false);
 
     try {
       const response = await fetch(
@@ -73,9 +125,74 @@ export default function GuestViewPage() {
     }
   };
 
+  const handleInputChange = (value: string) => {
+    setSearchName(value);
+
+    // Clear existing timeout
+    if (suggestionsTimeoutRef.current) {
+      clearTimeout(suggestionsTimeoutRef.current);
+    }
+
+    // Debounce the suggestions fetch
+    suggestionsTimeoutRef.current = setTimeout(() => {
+      fetchSuggestions(value);
+    }, 300);
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setSearchName(suggestion);
+    setShowSuggestions(false);
+    setSuggestions([]);
+    // Auto-search when suggestion is clicked
+    setTimeout(() => {
+      handleSearch();
+    }, 100);
+  };
+
+  const handleInputFocus = () => {
+    if (suggestions.length > 0 && searchName.length >= 2) {
+      setShowSuggestions(true);
+    }
+  };
+
+  const handleInputBlur = () => {
+    // Delay hiding suggestions to allow for clicks
+    setTimeout(() => {
+      setShowSuggestions(false);
+    }, 150);
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      handleSearch();
+      if (
+        showSuggestions &&
+        selectedSuggestionIndex >= 0 &&
+        suggestions[selectedSuggestionIndex]
+      ) {
+        handleSuggestionClick(suggestions[selectedSuggestionIndex]);
+      } else {
+        handleSearch();
+      }
+    }
+    if (e.key === "Escape") {
+      setShowSuggestions(false);
+      setSelectedSuggestionIndex(-1);
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (showSuggestions) {
+        setSelectedSuggestionIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        );
+      }
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (showSuggestions) {
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        );
+      }
     }
   };
 
@@ -84,7 +201,19 @@ export default function GuestViewPage() {
     setGuestResult(null);
     setError(null);
     setSearchName("");
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIndex(-1);
   };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (suggestionsTimeoutRef.current) {
+        clearTimeout(suggestionsTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <AppLayout>
@@ -102,19 +231,19 @@ export default function GuestViewPage() {
             <div className="flex items-center justify-center gap-3 mb-4">
               <Sparkles className="w-8 h-8 text-purple-600 animate-pulse" />
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-                Table Finder
+                Find Your Table
               </h1>
               <Sparkles className="w-8 h-8 text-blue-600 animate-pulse" />
             </div>
             <p className="text-xl text-gray-600 animate-fade-in-delay">
-              Find your assigned table with ease
+              ✨ Enter your name to discover your table assignment
             </p>
 
             {/* Welcome Message */}
             {showWelcome && (
               <div className="mt-4 p-3 bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg border border-purple-200 animate-bounce-in">
                 <p className="text-purple-700 font-medium">
-                  ✨ Welcome! Enter your name to discover your table ✨
+                  ✨ Welcome! Start typing to see suggestions ✨
                 </p>
               </div>
             )}
@@ -130,30 +259,90 @@ export default function GuestViewPage() {
             </CardHeader>
             <CardContent className="p-6">
               <div className="space-y-4">
-                <div className="flex gap-3">
-                  <Input
-                    type="text"
-                    placeholder="Enter your full name..."
-                    value={searchName}
-                    onChange={(e) => setSearchName(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    className="flex-1 border-2 border-gray-200 focus:border-purple-400 transition-all duration-300 rounded-lg text-lg py-3"
-                    disabled={loading}
-                  />
-                  <Button
-                    onClick={handleSearch}
-                    disabled={loading || !searchName.trim()}
-                    className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 transition-all duration-300 transform hover:scale-105 px-6 py-3 text-lg font-semibold rounded-lg"
-                  >
-                    {loading ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Searching...
-                      </div>
-                    ) : (
-                      "Find Table"
-                    )}
-                  </Button>
+                <div className="relative z-[100]">
+                  <div className="flex gap-3">
+                    <div className="flex-1 relative">
+                      <Input
+                        ref={inputRef}
+                        type="text"
+                        placeholder="Start typing your full name..."
+                        value={searchName}
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        onFocus={handleInputFocus}
+                        onBlur={handleInputBlur}
+                        onKeyDown={handleKeyPress}
+                        className="w-full border-2 border-gray-200 focus:border-purple-400 transition-all duration-300 rounded-lg text-lg py-3"
+                        disabled={loading}
+                      />
+
+                      {/* Enhanced Autocomplete suggestions - High z-index for top positioning */}
+                      {showSuggestions && suggestions.length > 0 && (
+                        <div
+                          className="absolute z-[9999] w-full mt-2 bg-white/98 backdrop-blur-xl border border-purple-200 rounded-2xl shadow-2xl overflow-hidden animate-fade-in"
+                          style={{
+                            zIndex: 9999,
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            maxHeight: "50vh",
+                          }}
+                        >
+                          <div className="max-h-[50vh] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-200 scrollbar-track-transparent">
+                            <div className="p-1">
+                              {suggestions.map((suggestion, index) => (
+                                <button
+                                  key={index}
+                                  className={`w-full px-4 py-4 text-left focus:outline-none transition-all duration-200 rounded-xl border group ${
+                                    selectedSuggestionIndex === index
+                                      ? "bg-gradient-to-r from-purple-100 to-blue-100 border-purple-300"
+                                      : "hover:bg-gradient-to-r hover:from-purple-50 hover:to-blue-50 focus:bg-gradient-to-r focus:from-purple-50 focus:to-blue-50 border-transparent hover:border-purple-200"
+                                  }`}
+                                  onClick={() =>
+                                    handleSuggestionClick(suggestion)
+                                  }
+                                  onMouseDown={(e) => e.preventDefault()} // Prevent blur on click
+                                  onMouseEnter={() =>
+                                    setSelectedSuggestionIndex(index)
+                                  }
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform duration-200">
+                                      <Users className="h-4 w-4 text-purple-600" />
+                                    </div>
+                                    <span className="font-semibold text-gray-800 group-hover:text-purple-700 transition-colors duration-200">
+                                      {suggestion}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Scroll indicator */}
+                          {suggestions.length > 5 && (
+                            <div className="px-4 py-2 text-xs text-purple-600 bg-purple-50/80 border-t border-purple-100 text-center">
+                              ↕ Scroll to see more results ({suggestions.length}{" "}
+                              total)
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      onClick={handleSearch}
+                      disabled={loading || !searchName.trim()}
+                      className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 transition-all duration-300 transform hover:scale-105 px-6 py-3 text-lg font-semibold rounded-lg"
+                    >
+                      {loading ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Searching...
+                        </div>
+                      ) : (
+                        "Find Table"
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Loading State */}
@@ -205,7 +394,9 @@ export default function GuestViewPage() {
                           <Users className="w-5 h-5 text-white" />
                         </div>
                         <span className="font-semibold text-lg">
-                          {guestResult.name}
+                          {guestResult.firstName && guestResult.lastName
+                            ? `${guestResult.firstName} ${guestResult.lastName}`
+                            : guestResult.name}
                         </span>
                       </div>
                       {guestResult.phoneNumber && (
@@ -304,23 +495,23 @@ export default function GuestViewPage() {
             <Card className="shadow-xl bg-gradient-to-br from-gray-50 to-blue-50 border-0 animate-fade-in-up-delay">
               <CardContent className="p-8">
                 <h3 className="font-bold text-gray-900 mb-6 text-xl text-center">
-                  How to use this tool:
+                  ✨ How it works
                 </h3>
                 <div className="grid gap-4">
                   {[
                     {
                       step: "1",
-                      text: "Enter your full name exactly as it appears on the guest list",
+                      text: "Start typing your name to see suggestions",
                       icon: "✍️",
                     },
                     {
                       step: "2",
-                      text: "Click Find Table or press Enter to search",
+                      text: "Select your name or press Enter to search",
                       icon: "🔍",
                     },
                     {
                       step: "3",
-                      text: "Your table assignment will be displayed if found",
+                      text: "Find your table assignment instantly!",
                       icon: "🎯",
                     },
                   ].map((item, index) => (

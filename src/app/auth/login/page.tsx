@@ -28,7 +28,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) {
-      router.push("/events");
+      router.push("/dashboard");
     }
   }, [user, router]);
 

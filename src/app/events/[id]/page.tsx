@@ -29,7 +29,35 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { authenticatedJsonFetch } from "@/lib/api";
+// Removed unused import
 import { TableEditDialog } from "@/components/ui/table-edit-dialog";
+
+// Helper function to get full name from local Guest interface
+const getDisplayName = (guest: Guest): string => {
+  if (guest.firstName || guest.lastName) {
+    return `${guest.firstName || ""} ${guest.lastName || ""}`.trim();
+  }
+  return guest.name || "";
+};
+
+// Helper function to match guest search for local Guest interface
+const matchesLocalGuestSearch = (guest: Guest, searchTerm: string): boolean => {
+  const term = searchTerm.toLowerCase();
+  const fullName = getDisplayName(guest).toLowerCase();
+  const firstName = (guest.firstName || "").toLowerCase();
+  const lastName = (guest.lastName || "").toLowerCase();
+  const email = (guest.email || "").toLowerCase();
+  const phone = (guest.phoneNumber || "").toLowerCase();
+
+  return (
+    fullName.includes(term) ||
+    firstName.includes(term) ||
+    lastName.includes(term) ||
+    email.includes(term) ||
+    phone.includes(term) ||
+    (guest.name || "").toLowerCase().includes(term)
+  );
+};
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import {
   Dialog,
@@ -42,8 +70,11 @@ import {
 
 interface Guest {
   id: string;
-  name: string;
+  name: string; // Keep for backward compatibility
+  firstName?: string;
+  lastName?: string;
   phoneNumber: string | null;
+  email?: string | null;
   table: {
     id: string;
     name: string;
@@ -505,12 +536,12 @@ export default function EventDetailPage() {
   const filteredGuests =
     event?.guests.filter((guest) => {
       if (!guestSearchQuery.trim()) return true;
-      const query = guestSearchQuery.toLowerCase();
       return (
-        guest.name.toLowerCase().includes(query) ||
-        (guest.phoneNumber &&
-          guest.phoneNumber.toLowerCase().includes(query)) ||
-        (guest.table && guest.table.name.toLowerCase().includes(query))
+        matchesLocalGuestSearch(guest, guestSearchQuery) ||
+        (guest.table &&
+          guest.table.name
+            .toLowerCase()
+            .includes(guestSearchQuery.toLowerCase()))
       );
     }) || [];
 
@@ -1105,12 +1136,15 @@ export default function EventDetailPage() {
                             className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group"
                           >
                             <div>
-                              <div className="font-medium">{guest.name}</div>
-                              {guest.phoneNumber && (
-                                <div className="text-sm text-gray-500">
-                                  {guest.phoneNumber}
-                                </div>
-                              )}
+                              <div className="font-medium">
+                                {getDisplayName(guest)}
+                              </div>
+                              <div className="text-sm text-gray-500 space-y-1">
+                                {guest.phoneNumber && (
+                                  <div>{guest.phoneNumber}</div>
+                                )}
+                                {guest.email && <div>{guest.email}</div>}
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
                               {guest.table ? (
@@ -1127,11 +1161,14 @@ export default function EventDetailPage() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() =>
-                                  handleDeleteGuest(guest.id, guest.name)
+                                  handleDeleteGuest(
+                                    guest.id,
+                                    getDisplayName(guest)
+                                  )
                                 }
                                 disabled={deletingGuest === guest.id}
                                 className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all duration-200"
-                                title={`Remove ${guest.name}`}
+                                title={`Remove ${getDisplayName(guest)}`}
                               >
                                 {deletingGuest === guest.id ? (
                                   <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>

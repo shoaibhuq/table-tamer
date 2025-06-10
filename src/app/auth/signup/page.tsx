@@ -44,7 +44,7 @@ export default function SignupPage() {
 
   useEffect(() => {
     if (user) {
-      router.push("/events");
+      router.push("/dashboard");
     }
   }, [user, router]);
 
