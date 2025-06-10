@@ -57,13 +57,25 @@ export default function ProfilePage() {
 
   // Table naming scheme options
   const tableNamingOptions = [
-    { value: "numbers", label: "Numbers", example: "1, 2, 3, 4..." },
-    { value: "letters", label: "Letters", example: "A, B, C, D..." },
-    { value: "roman", label: "Roman Numerals", example: "I, II, III, IV..." },
+    {
+      value: "numbers",
+      label: "Numbers",
+      example: "Table 1, Table 2, Table 3...",
+    },
+    {
+      value: "letters",
+      label: "Letters",
+      example: "Table A, Table B, Table C...",
+    },
+    {
+      value: "roman",
+      label: "Roman Numerals",
+      example: "Table I, Table II, Table III...",
+    },
     {
       value: "custom-prefix",
       label: "Custom Prefix + Numbers",
-      example: "Table 1, Table 2...",
+      example: "VIP 1, VIP 2, VIP 3...",
     },
     {
       value: "custom-names",

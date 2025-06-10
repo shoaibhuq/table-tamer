@@ -52,7 +52,6 @@ interface DraggableGuestProps {
   onUnassign?: (guestId: string) => void;
   onSelect?: (guestId: string, isSelected: boolean) => void;
   onClick?: (guestId: string) => void;
-  showClickHint?: boolean;
 }
 
 function DraggableGuest({
@@ -62,7 +61,6 @@ function DraggableGuest({
   onUnassign,
   onSelect,
   onClick,
-  showClickHint = false,
 }: DraggableGuestProps) {
   const { setNodeRef, transform, transition, listeners, attributes } =
     useSortable({
@@ -85,9 +83,7 @@ function DraggableGuest({
         guest-card-hover drag-smooth relative group transition-all duration-200
         ${
           isSelected
-            ? "border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 ring-2 ring-blue-300 shadow-md cursor-pointer"
-            : onClick
-            ? "border-gray-200 hover:border-blue-300 hover:shadow-lg cursor-pointer hover:bg-blue-50"
+            ? "border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 ring-2 ring-blue-300 shadow-md cursor-grab"
             : "border-gray-200 hover:border-blue-300 hover:shadow-lg cursor-grab active:cursor-grabbing"
         }
         ${
@@ -97,7 +93,8 @@ function DraggableGuest({
         }
       `}
       onClick={() => onClick && onClick(guest.id)}
-      {...(onClick ? {} : { ...attributes, ...listeners })}
+      {...attributes}
+      {...listeners}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 flex-1">
@@ -138,11 +135,6 @@ function DraggableGuest({
           {isSelected && (
             <div className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
               Selected
-            </div>
-          )}
-          {showClickHint && !isSelected && (
-            <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-              Click to select
             </div>
           )}
           {onUnassign && (
@@ -316,7 +308,6 @@ interface UnassignedGuestsAreaProps {
   selectedGuests: Set<string>;
   onSelectGuest: (guestId: string, isSelected: boolean) => void;
   onClickGuest?: (guestId: string) => void;
-  showClickHints?: boolean;
 }
 
 function UnassignedGuestsArea({
@@ -324,7 +315,6 @@ function UnassignedGuestsArea({
   selectedGuests,
   onSelectGuest,
   onClickGuest,
-  showClickHints = false,
 }: UnassignedGuestsAreaProps) {
   const { setNodeRef, isOver } = useDroppable({ id: "unassigned" });
 
@@ -356,7 +346,6 @@ function UnassignedGuestsArea({
             isSelected={selectedGuests.has(guest.id)}
             onSelect={onSelectGuest}
             onClick={onClickGuest}
-            showClickHint={showClickHints}
           />
         ))}
       </SortableContext>
@@ -397,7 +386,8 @@ function AssignPageContent() {
   const [activeGuest, setActiveGuest] = useState<Guest | null>(null);
   const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [unassignedSearchQuery, setUnassignedSearchQuery] = useState("");
   const currentEventId = eventIdParam;
 
   const sensors = useSensors(
@@ -474,9 +464,9 @@ function AssignPageContent() {
     ) => {
       switch (type) {
         case "numbers":
-          return (index + 1).toString();
+          return `Table ${index + 1}`;
         case "letters":
-          return String.fromCharCode(65 + index); // A, B, C...
+          return `Table ${String.fromCharCode(65 + index)}`; // Table A, Table B, Table C...
         case "roman":
           const romans = [
             "I",
@@ -500,11 +490,11 @@ function AssignPageContent() {
             "XIX",
             "XX",
           ];
-          return romans[index] || (index + 1).toString();
+          return `Table ${romans[index] || index + 1}`;
         case "custom-prefix":
           return `${prefix} ${index + 1}`;
         default:
-          return (index + 1).toString();
+          return `Table ${index + 1}`;
       }
     };
 
@@ -1070,11 +1060,11 @@ function AssignPageContent() {
   };
 
   const handleSelectAllUnassigned = () => {
-    const currentFilteredGuests = filterGuests(unassignedGuests);
+    const currentFilteredGuests = filteredUnassignedGuests;
     if (selectedGuests.size === currentFilteredGuests.length) {
       setSelectedGuests(new Set());
     } else {
-      setSelectedGuests(new Set(currentFilteredGuests.map((g) => g.id)));
+      setSelectedGuests(new Set(currentFilteredGuests.map((g: Guest) => g.id)));
     }
   };
 
@@ -1257,10 +1247,10 @@ function AssignPageContent() {
     }
   };
 
-  // Filter guests based on search query
-  const filterGuests = (guests: Guest[]) => {
-    if (!searchQuery.trim()) return guests;
-    const query = searchQuery.toLowerCase();
+  // Filter unassigned guests with their specific search
+  const filterUnassignedGuests = (guests: Guest[]) => {
+    if (!unassignedSearchQuery.trim()) return guests;
+    const query = unassignedSearchQuery.toLowerCase();
     return guests.filter(
       (guest) =>
         guest.name.toLowerCase().includes(query) ||
@@ -1268,11 +1258,32 @@ function AssignPageContent() {
     );
   };
 
-  const filteredUnassignedGuests = filterGuests(unassignedGuests);
-  const filteredTables = tables.map((table) => ({
-    ...table,
-    guests: filterGuests(table.guests),
-  }));
+  // Filter all guests (including those in tables) with global search
+  const filterAllGuests = (guests: Guest[]) => {
+    if (!globalSearchQuery.trim()) return guests;
+    const query = globalSearchQuery.toLowerCase();
+    return guests.filter(
+      (guest) =>
+        guest.name.toLowerCase().includes(query) ||
+        (guest.phoneNumber && guest.phoneNumber.includes(query))
+    );
+  };
+
+  // Apply filters
+  const filteredUnassignedGuests = filterUnassignedGuests(unassignedGuests);
+
+  // Filter all guests (including those in tables) with global search
+  const filteredTables = globalSearchQuery.trim()
+    ? tables
+        .map((table) => ({
+          ...table,
+          guests: filterAllGuests(table.guests),
+        }))
+        .filter((table) => {
+          // Show table if it has matching guests
+          return table.guests.length > 0;
+        })
+    : tables; // Show all tables when no global search
 
   const updateGuestAssignmentLocally = (
     guestId: string,
@@ -1495,13 +1506,26 @@ function AssignPageContent() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
         <div className="max-w-7xl mx-auto px-4">
           {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">
-              Table Assignment
-            </h1>
-            <p className="text-xl text-gray-600">
-              Create tables and assign guests to them
-            </p>
+          <div className="mb-8">
+            {/* Back Navigation */}
+            {currentEventId && (
+              <Link
+                href={`/events/${currentEventId}`}
+                className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-6 text-lg font-medium"
+              >
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back to Event Details
+              </Link>
+            )}
+
+            <div className="text-center">
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                Table Assignment
+              </h1>
+              <p className="text-xl text-gray-600">
+                Create tables and assign guests to them
+              </p>
+            </div>
           </div>
 
           {/* Event Selection Required */}
@@ -1603,14 +1627,14 @@ function AssignPageContent() {
                       <Input
                         type="text"
                         placeholder="🔍 Search all guests by name or phone..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        value={globalSearchQuery}
+                        onChange={(e) => setGlobalSearchQuery(e.target.value)}
                         className="w-full"
                       />
                     </div>
-                    {searchQuery && (
+                    {globalSearchQuery && (
                       <Button
-                        onClick={() => setSearchQuery("")}
+                        onClick={() => setGlobalSearchQuery("")}
                         variant="outline"
                         size="sm"
                       >
@@ -1724,10 +1748,11 @@ function AssignPageContent() {
                         <CardTitle className="flex items-center justify-between">
                           <span>Unassigned Guests</span>
                           <Badge variant="outline">
-                            {searchQuery
+                            {unassignedSearchQuery
                               ? filteredUnassignedGuests.length
                               : unassignedGuests.length}
-                            {searchQuery && ` of ${unassignedGuests.length}`}
+                            {unassignedSearchQuery &&
+                              ` of ${unassignedGuests.length}`}
                           </Badge>
                         </CardTitle>
 
@@ -1735,9 +1760,11 @@ function AssignPageContent() {
                         <div className="mb-3">
                           <Input
                             type="text"
-                            placeholder="Search guests..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search unassigned guests..."
+                            value={unassignedSearchQuery}
+                            onChange={(e) =>
+                              setUnassignedSearchQuery(e.target.value)
+                            }
                             className="text-sm"
                           />
                         </div>
@@ -1781,7 +1808,6 @@ function AssignPageContent() {
                             selectedGuests={selectedGuests}
                             onSelectGuest={handleSelectGuest}
                             onClickGuest={handleClickGuest}
-                            showClickHints={unassignedGuests.length > 0}
                           />
                         </div>
                       </CardContent>
@@ -1790,11 +1816,21 @@ function AssignPageContent() {
 
                   {/* Tables */}
                   <div className="lg:col-span-3">
-                    {searchQuery && (
+                    {globalSearchQuery && (
                       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-sm text-blue-800">
-                          <strong>Search active:</strong> &ldquo;{searchQuery}
-                          &rdquo; - Showing matching guests only
+                          <strong>Global search active:</strong> &ldquo;
+                          {globalSearchQuery}
+                          &rdquo; - Filtering all guests
+                        </p>
+                      </div>
+                    )}
+                    {unassignedSearchQuery && (
+                      <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <p className="text-sm text-green-800">
+                          <strong>Unassigned search active:</strong> &ldquo;
+                          {unassignedSearchQuery}
+                          &rdquo; - Filtering unassigned guests only
                         </p>
                       </div>
                     )}
@@ -1803,12 +1839,7 @@ function AssignPageContent() {
                       {filteredTables.map((table) => (
                         <DroppableTable
                           key={table.id}
-                          table={{
-                            ...table,
-                            guests:
-                              tables.find((t) => t.id === table.id)?.guests ||
-                              [],
-                          }}
+                          table={table}
                           guests={table.guests}
                           selectedGuestsCount={selectedGuests.size}
                           onUnassign={(guestId) => {

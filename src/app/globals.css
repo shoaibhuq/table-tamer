@@ -150,6 +150,24 @@
   background: #94a3b8;
 }
 
+/* Purple-themed scrollbar for autocomplete */
+.scrollbar-thumb-purple-200::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollbar-thumb-purple-200::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thumb-purple-200::-webkit-scrollbar-thumb {
+  background: #e9d5ff;
+  border-radius: 4px;
+}
+
+.scrollbar-thumb-purple-200::-webkit-scrollbar-thumb:hover {
+  background: #c4b5fd;
+}
+
 /* Guest card hover effects */
 .guest-card-hover {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

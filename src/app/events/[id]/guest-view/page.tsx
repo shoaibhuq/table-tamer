@@ -69,6 +69,7 @@ export default function EventGuestViewPage() {
   const [searched, setSearched] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -107,14 +108,17 @@ export default function EventGuestViewPage() {
       if (data.success && data.suggestions) {
         setSuggestions(data.suggestions);
         setShowSuggestions(data.suggestions.length > 0);
+        setSelectedSuggestionIndex(-1); // Reset selection
       } else {
         setSuggestions([]);
         setShowSuggestions(false);
+        setSelectedSuggestionIndex(-1);
       }
     } catch (error) {
       console.error("Error fetching suggestions:", error);
       setSuggestions([]);
       setShowSuggestions(false);
+      setSelectedSuggestionIndex(-1);
     }
   };
 
@@ -315,7 +319,7 @@ export default function EventGuestViewPage() {
           </CardHeader>
           <CardContent className="pt-4 relative z-10">
             <div className="space-y-6">
-              <div className="relative">
+              <div className="relative z-[100]">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 z-10" />
                   <Input
@@ -328,10 +332,37 @@ export default function EventGuestViewPage() {
                     onBlur={handleInputBlur}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        searchGuest();
+                        if (
+                          showSuggestions &&
+                          selectedSuggestionIndex >= 0 &&
+                          suggestions[selectedSuggestionIndex]
+                        ) {
+                          handleSuggestionClick(
+                            suggestions[selectedSuggestionIndex]
+                          );
+                        } else {
+                          searchGuest();
+                        }
                       }
                       if (e.key === "Escape") {
                         setShowSuggestions(false);
+                        setSelectedSuggestionIndex(-1);
+                      }
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        if (showSuggestions) {
+                          setSelectedSuggestionIndex((prev) =>
+                            prev < suggestions.length - 1 ? prev + 1 : 0
+                          );
+                        }
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        if (showSuggestions) {
+                          setSelectedSuggestionIndex((prev) =>
+                            prev > 0 ? prev - 1 : suggestions.length - 1
+                          );
+                        }
                       }
                     }}
                     className="w-full h-16 text-lg border-2 border-gray-200 focus:border-gradient-to-r focus:from-purple-400 focus:to-pink-400 rounded-2xl pl-12 pr-4 transition-all duration-300 bg-white/95 shadow-inner focus:shadow-lg font-medium placeholder:text-gray-400"
@@ -339,27 +370,54 @@ export default function EventGuestViewPage() {
                   <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-400/20 to-pink-400/20 opacity-0 focus-within:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                 </div>
 
-                {/* Enhanced Autocomplete suggestions */}
+                {/* Enhanced Autocomplete suggestions - Reliable positioning */}
                 {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute z-50 w-full mt-3 bg-white/95 backdrop-blur-xl border border-purple-200 rounded-2xl shadow-2xl max-h-60 overflow-y-auto animate-fade-in">
-                    <div className="p-2">
-                      {suggestions.map((suggestion, index) => (
-                        <button
-                          key={index}
-                          className="w-full px-4 py-4 text-left hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 focus:bg-gradient-to-r focus:from-purple-50 focus:to-pink-50 focus:outline-none transition-all duration-200 rounded-xl border border-transparent hover:border-purple-200 group"
-                          onClick={() => handleSuggestionClick(suggestion)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform duration-200">
-                              <Users className="h-4 w-4 text-purple-600" />
+                  <div
+                    className="absolute z-[9999] w-full mt-3 bg-white/98 backdrop-blur-xl border border-purple-200 rounded-2xl shadow-2xl overflow-hidden animate-fade-in"
+                    style={{
+                      zIndex: 9999,
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      maxHeight: "50vh",
+                    }}
+                  >
+                    <div className="max-h-[50vh] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-200 scrollbar-track-transparent">
+                      <div className="p-1">
+                        {suggestions.map((suggestion, index) => (
+                          <button
+                            key={index}
+                            className={`w-full px-4 py-4 text-left focus:outline-none transition-all duration-200 rounded-xl border group ${
+                              selectedSuggestionIndex === index
+                                ? "bg-gradient-to-r from-purple-100 to-pink-100 border-purple-300"
+                                : "hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 focus:bg-gradient-to-r focus:from-purple-50 focus:to-pink-50 border-transparent hover:border-purple-200"
+                            }`}
+                            onClick={() => handleSuggestionClick(suggestion)}
+                            onMouseDown={(e) => e.preventDefault()} // Prevent blur on click
+                            onMouseEnter={() =>
+                              setSelectedSuggestionIndex(index)
+                            }
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform duration-200">
+                                <Users className="h-4 w-4 text-purple-600" />
+                              </div>
+                              <span className="font-semibold text-gray-800 group-hover:text-purple-700 transition-colors duration-200">
+                                {suggestion}
+                              </span>
                             </div>
-                            <span className="font-semibold text-gray-800 group-hover:text-purple-700 transition-colors duration-200">
-                              {suggestion}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                    {/* Scroll indicator */}
+                    {suggestions.length > 5 && (
+                      <div className="px-4 py-2 text-xs text-purple-600 bg-purple-50/80 border-t border-purple-100 text-center">
+                        ↕ Scroll to see more results ({suggestions.length}{" "}
+                        total)
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

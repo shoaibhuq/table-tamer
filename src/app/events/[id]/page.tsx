@@ -25,6 +25,7 @@ import {
   CheckCircle,
   UserMinus,
   UserX,
+  Search,
 } from "lucide-react";
 import Link from "next/link";
 import { authenticatedJsonFetch } from "@/lib/api";
@@ -108,6 +109,9 @@ export default function EventDetailPage() {
   const [deletingGuest, setDeletingGuest] = useState<string | null>(null);
   const [showRemoveAllDialog, setShowRemoveAllDialog] = useState(false);
   const [removingAllGuests, setRemovingAllGuests] = useState(false);
+
+  // Guest search state
+  const [guestSearchQuery, setGuestSearchQuery] = useState("");
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -496,6 +500,19 @@ export default function EventDetailPage() {
       return "Invalid date";
     }
   };
+
+  // Filter guests based on search query
+  const filteredGuests =
+    event?.guests.filter((guest) => {
+      if (!guestSearchQuery.trim()) return true;
+      const query = guestSearchQuery.toLowerCase();
+      return (
+        guest.name.toLowerCase().includes(query) ||
+        (guest.phoneNumber &&
+          guest.phoneNumber.toLowerCase().includes(query)) ||
+        (guest.table && guest.table.name.toLowerCase().includes(query))
+      );
+    }) || [];
 
   if (loading) {
     return (
@@ -1016,7 +1033,13 @@ export default function EventDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span>Guests ({event.guests.length})</span>
+                  <span>
+                    Guests (
+                    {guestSearchQuery
+                      ? filteredGuests.length
+                      : event.guests.length}
+                    {guestSearchQuery && ` of ${event.guests.length}`})
+                  </span>
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
@@ -1040,54 +1063,88 @@ export default function EventDetailPage() {
                     <Users className="w-5 h-5 text-gray-400" />
                   </div>
                 </CardTitle>
+
+                {/* Search Input */}
+                {event.guests.length > 0 && (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <Input
+                      type="text"
+                      placeholder="Search guests by name, phone, or table..."
+                      value={guestSearchQuery}
+                      onChange={(e) => setGuestSearchQuery(e.target.value)}
+                      className="pl-10 text-sm"
+                    />
+                  </div>
+                )}
               </CardHeader>
               <CardContent>
                 {event.guests.length > 0 ? (
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {event.guests.map((guest) => (
-                      <div
-                        key={guest.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group"
-                      >
-                        <div>
-                          <div className="font-medium">{guest.name}</div>
-                          {guest.phoneNumber && (
-                            <div className="text-sm text-gray-500">
-                              {guest.phoneNumber}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {guest.table ? (
-                            <Badge
-                              className="border-l-2"
-                              style={{ borderLeftColor: guest.table.color }}
-                            >
-                              {guest.table.name}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline">Unassigned</Badge>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              handleDeleteGuest(guest.id, guest.name)
-                            }
-                            disabled={deletingGuest === guest.id}
-                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all duration-200"
-                            title={`Remove ${guest.name}`}
-                          >
-                            {deletingGuest === guest.id ? (
-                              <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                              <UserMinus className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </div>
+                  <>
+                    {guestSearchQuery && filteredGuests.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <Search className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>
+                          No guests found matching &ldquo;{guestSearchQuery}
+                          &rdquo;
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setGuestSearchQuery("")}
+                          className="mt-2"
+                        >
+                          Clear search
+                        </Button>
                       </div>
-                    ))}
-                  </div>
+                    ) : (
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {filteredGuests.map((guest) => (
+                          <div
+                            key={guest.id}
+                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg group"
+                          >
+                            <div>
+                              <div className="font-medium">{guest.name}</div>
+                              {guest.phoneNumber && (
+                                <div className="text-sm text-gray-500">
+                                  {guest.phoneNumber}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {guest.table ? (
+                                <Badge
+                                  className="border-l-2"
+                                  style={{ borderLeftColor: guest.table.color }}
+                                >
+                                  {guest.table.name}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline">Unassigned</Badge>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  handleDeleteGuest(guest.id, guest.name)
+                                }
+                                disabled={deletingGuest === guest.id}
+                                className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                                title={`Remove ${guest.name}`}
+                              >
+                                {deletingGuest === guest.id ? (
+                                  <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                  <UserMinus className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-8 text-gray-500">
                     <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
