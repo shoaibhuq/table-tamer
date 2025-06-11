@@ -53,9 +53,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { name, email, phoneNumber, eventId } = await req.json();
+    const { name, firstName, lastName, email, phoneNumber, eventId, tableId } =
+      await req.json();
 
-    if (!name || name.trim() === "") {
+    // Check that either name or at least one of firstName/lastName is provided
+    if (
+      (!name || name.trim() === "") &&
+      !firstName?.trim() &&
+      !lastName?.trim()
+    ) {
       return NextResponse.json(
         { success: false, error: "Guest name is required" },
         { status: 400 }
@@ -71,13 +77,26 @@ export async function POST(req: NextRequest) {
 
     const guestData: {
       name: string;
+      firstName?: string;
+      lastName?: string;
       eventId: string;
       email?: string;
       phoneNumber?: string;
+      tableId?: string;
     } = {
-      name: name.trim(),
+      name:
+        name?.trim() ||
+        `${firstName?.trim() || ""} ${lastName?.trim() || ""}`.trim(),
       eventId: eventId,
     };
+
+    // Add name fields if provided
+    if (firstName && firstName.trim()) {
+      guestData.firstName = firstName.trim();
+    }
+    if (lastName && lastName.trim()) {
+      guestData.lastName = lastName.trim();
+    }
 
     // Only add optional fields if they have values
     if (email && email.trim()) {
@@ -85,6 +104,9 @@ export async function POST(req: NextRequest) {
     }
     if (phoneNumber && phoneNumber.trim()) {
       guestData.phoneNumber = phoneNumber.trim();
+    }
+    if (tableId) {
+      guestData.tableId = tableId;
     }
 
     const guestId = await guestService.create(userId, guestData);

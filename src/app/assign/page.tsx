@@ -2081,6 +2081,7 @@ function AssignPageContent() {
             open={!!editingGuest}
             onOpenChange={(open) => !open && setEditingGuest(null)}
             onSave={handleSaveGuest}
+            tables={tables}
           />
         </div>
       </div>

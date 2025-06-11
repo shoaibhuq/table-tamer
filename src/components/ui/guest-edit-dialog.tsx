@@ -11,13 +11,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { TableSelector } from "@/components/ui/table-selector";
 import { User, Phone, Mail, FileText, Save, X } from "lucide-react";
+
+interface Table {
+  id: string;
+  name: string;
+  color: string;
+  capacity: number;
+  guests?: Array<{ id: string; name: string }>;
+}
 
 interface GuestEditDialogProps {
   guest: Guest | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (guestId: string, updates: Partial<Guest>) => Promise<void>;
+  tables?: Table[];
 }
 
 export function GuestEditDialog({
@@ -25,12 +35,14 @@ export function GuestEditDialog({
   open,
   onOpenChange,
   onSave,
+  tables = [],
 }: GuestEditDialogProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -42,6 +54,7 @@ export function GuestEditDialog({
       setPhoneNumber(guest.phoneNumber || "");
       setEmail(guest.email || "");
       setNotes(guest.notes || "");
+      setSelectedTableId(guest.tableId || null);
       setErrors({});
     }
   }, [guest]);
@@ -74,6 +87,7 @@ export function GuestEditDialog({
         phoneNumber: phoneNumber.trim() || undefined,
         email: email.trim() || undefined,
         notes: notes.trim() || undefined,
+        tableId: selectedTableId || undefined,
       };
 
       // Update the legacy name field for backward compatibility
@@ -202,6 +216,16 @@ export function GuestEditDialog({
               className="resize-none"
             />
           </div>
+
+          {/* Table Assignment */}
+          {tables && tables.length > 0 && (
+            <TableSelector
+              tables={tables}
+              selectedTableId={selectedTableId}
+              onTableSelect={setSelectedTableId}
+              placeholder="Select a table (optional)..."
+            />
+          )}
 
           {/* General Error */}
           {errors.general && (

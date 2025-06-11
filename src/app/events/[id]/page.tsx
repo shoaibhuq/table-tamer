@@ -71,6 +71,7 @@ const matchesLocalGuestSearch = (guest: Guest, searchTerm: string): boolean => {
 import { ThemeSelector } from "@/components/ui/theme-selector";
 import { EventLinksManager } from "@/components/event-links-manager";
 import { EventLink } from "@/lib/firestore";
+import { TableSelector } from "@/components/ui/table-selector";
 import {
   Dialog,
   DialogContent,
@@ -142,9 +143,11 @@ export default function EventDetailPage() {
 
   // Guest addition state
   const [addGuestDialogOpen, setAddGuestDialogOpen] = useState(false);
-  const [guestName, setGuestName] = useState("");
+  const [guestFirstName, setGuestFirstName] = useState("");
+  const [guestLastName, setGuestLastName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+  const [guestTableId, setGuestTableId] = useState<string | null>(null);
   const [addingGuest, setAddingGuest] = useState(false);
   const [guestError, setGuestError] = useState<string | null>(null);
   const [guestSuccess, setGuestSuccess] = useState<string | null>(null);
@@ -499,8 +502,8 @@ export default function EventDetailPage() {
   };
 
   const handleAddGuest = async () => {
-    if (!guestName.trim()) {
-      setGuestError("Please enter a guest name");
+    if (!guestFirstName.trim() && !guestLastName.trim()) {
+      setGuestError("Please enter at least a first name or last name");
       return;
     }
 
@@ -509,22 +512,39 @@ export default function EventDetailPage() {
     setGuestSuccess(null);
 
     try {
+      const fullName =
+        `${guestFirstName.trim()} ${guestLastName.trim()}`.trim();
+
       const guestData: {
         name: string;
+        firstName?: string;
+        lastName?: string;
         eventId: string;
         email?: string;
         phoneNumber?: string;
+        tableId?: string;
       } = {
-        name: guestName.trim(),
+        name: fullName, // For backward compatibility
         eventId: eventId,
       };
 
-      // Only add fields if they have values
+      // Add name fields
+      if (guestFirstName.trim()) {
+        guestData.firstName = guestFirstName.trim();
+      }
+      if (guestLastName.trim()) {
+        guestData.lastName = guestLastName.trim();
+      }
+
+      // Add optional fields if they have values
       if (guestEmail.trim()) {
         guestData.email = guestEmail.trim();
       }
       if (guestPhone.trim()) {
         guestData.phoneNumber = guestPhone.trim();
+      }
+      if (guestTableId) {
+        guestData.tableId = guestTableId;
       }
 
       const response = (await authenticatedJsonFetch("/api/guests", {
@@ -537,13 +557,15 @@ export default function EventDetailPage() {
 
         // Log analytics event
         if (user?.uid && event) {
-          await logGuestAdded(user.uid, eventId, event.name, guestName.trim());
+          await logGuestAdded(user.uid, eventId, event.name, fullName);
         }
 
         // Reset form
-        setGuestName("");
+        setGuestFirstName("");
+        setGuestLastName("");
         setGuestEmail("");
         setGuestPhone("");
+        setGuestTableId(null);
         // Refresh event data to show new guest
         await fetchEvent();
         // Close dialog after a short delay
@@ -1444,6 +1466,7 @@ export default function EventDetailPage() {
           open={!!editingGuest}
           onOpenChange={(open) => !open && setEditingGuest(null)}
           onSave={handleSaveGuest}
+          tables={event?.tables || []}
         />
 
         {/* Table Rename Dialog */}
@@ -1572,21 +1595,38 @@ export default function EventDetailPage() {
             </DialogHeader>
 
             <div className="py-6 space-y-6">
-              {/* Guest Name */}
-              <div className="space-y-2">
-                <Label
-                  htmlFor="guest-name"
-                  className="text-sm font-semibold text-gray-700"
-                >
-                  Guest Name *
-                </Label>
-                <Input
-                  id="guest-name"
-                  placeholder="Enter full name..."
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
-                />
+              {/* Guest Name Fields */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="guest-first-name"
+                    className="text-sm font-semibold text-gray-700"
+                  >
+                    First Name
+                  </Label>
+                  <Input
+                    id="guest-first-name"
+                    placeholder="Enter first name..."
+                    value={guestFirstName}
+                    onChange={(e) => setGuestFirstName(e.target.value)}
+                    className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="guest-last-name"
+                    className="text-sm font-semibold text-gray-700"
+                  >
+                    Last Name
+                  </Label>
+                  <Input
+                    id="guest-last-name"
+                    placeholder="Enter last name..."
+                    value={guestLastName}
+                    onChange={(e) => setGuestLastName(e.target.value)}
+                    className="text-lg py-3 border-2 border-gray-200 focus:border-rose-400 rounded-xl"
+                  />
+                </div>
               </div>
 
               {/* Guest Email */}
@@ -1625,6 +1665,16 @@ export default function EventDetailPage() {
                 />
               </div>
 
+              {/* Table Assignment */}
+              {event && event.tables.length > 0 && (
+                <TableSelector
+                  tables={event.tables}
+                  selectedTableId={guestTableId}
+                  onTableSelect={setGuestTableId}
+                  placeholder="Select a table (optional)..."
+                />
+              )}
+
               {/* Error Message */}
               {guestError && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center">
@@ -1653,7 +1703,10 @@ export default function EventDetailPage() {
               </Button>
               <Button
                 onClick={handleAddGuest}
-                disabled={addingGuest || !guestName.trim()}
+                disabled={
+                  addingGuest ||
+                  (!guestFirstName.trim() && !guestLastName.trim())
+                }
                 className="bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
               >
                 {addingGuest ? (
