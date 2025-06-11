@@ -26,6 +26,7 @@ import {
   UserMinus,
   UserX,
   Search,
+  Link as LinkIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { authenticatedJsonFetch } from "@/lib/api";
@@ -68,6 +69,8 @@ const matchesLocalGuestSearch = (guest: Guest, searchTerm: string): boolean => {
   );
 };
 import { ThemeSelector } from "@/components/ui/theme-selector";
+import { EventLinksManager } from "@/components/event-links-manager";
+import { EventLink } from "@/lib/firestore";
 import {
   Dialog,
   DialogContent,
@@ -163,6 +166,11 @@ export default function EventDetailPage() {
     useState(false);
   const [removingAllTables, setRemovingAllTables] = useState(false);
 
+  // Links management state
+  const [showLinksDialog, setShowLinksDialog] = useState(false);
+  const [eventLinks, setEventLinks] = useState<EventLink[]>([]);
+  const [linksLoading, setLinksLoading] = useState(false);
+
   const fetchEvent = useCallback(async () => {
     try {
       const data = (await authenticatedJsonFetch(`/api/events/${eventId}`)) as {
@@ -182,6 +190,29 @@ export default function EventDetailPage() {
       setError("Failed to fetch event.");
     } finally {
       setLoading(false);
+    }
+  }, [eventId]);
+
+  const fetchEventLinks = useCallback(async () => {
+    if (!eventId) return;
+
+    setLinksLoading(true);
+    try {
+      const data = (await authenticatedJsonFetch(
+        `/api/events/${eventId}/links`
+      )) as {
+        success: boolean;
+        links?: EventLink[];
+        error?: string;
+      };
+
+      if (data.success && data.links) {
+        setEventLinks(data.links);
+      }
+    } catch (error) {
+      console.error("Error fetching event links:", error);
+    } finally {
+      setLinksLoading(false);
     }
   }, [eventId]);
 
@@ -1044,6 +1075,16 @@ export default function EventDetailPage() {
                     Guest View
                   </Button>
                 </Link>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowLinksDialog(true);
+                    fetchEventLinks();
+                  }}
+                >
+                  <LinkIcon className="w-4 h-4 mr-2" />
+                  Manage Guest View Links
+                </Button>
                 <ThemeSelector
                   currentTheme={event.theme || "cosmic-purple"}
                   onThemeChange={handleThemeChange}
@@ -1758,6 +1799,51 @@ export default function EventDetailPage() {
                     Remove All {event?.tables.length} Tables
                   </>
                 )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Links Management Dialog */}
+        <Dialog open={showLinksDialog} onOpenChange={setShowLinksDialog}>
+          <DialogContent className="sm:max-w-4xl bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
+            <DialogHeader>
+              <div className="flex items-center mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-3">
+                  <LinkIcon className="w-6 h-6 text-white" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-gray-900">
+                  Manage Guest View Links
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-gray-600 text-lg">
+                Add custom links that will appear on the guest view page for
+                &ldquo;{event?.name}&rdquo;
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-6">
+              {linksLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                  <span className="ml-3 text-gray-600">Loading links...</span>
+                </div>
+              ) : (
+                <EventLinksManager
+                  eventId={eventId}
+                  links={eventLinks}
+                  onLinksChange={(links) => setEventLinks(links)}
+                />
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowLinksDialog(false)}
+                className="border-2 border-gray-300 hover:border-gray-400 px-6"
+              >
+                Done
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -30,6 +30,17 @@ export interface Event {
   updatedAt: Timestamp;
   guestCount?: number;
   tableCount?: number;
+  links?: EventLink[]; // Add support for custom links
+}
+
+export interface EventLink {
+  id: string;
+  title: string;
+  url: string;
+  icon: string; // Icon name from lucide-react
+  description?: string;
+  order: number;
+  isActive: boolean;
 }
 
 export interface Guest {

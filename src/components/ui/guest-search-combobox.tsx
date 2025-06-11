@@ -27,6 +27,14 @@ interface GuestSearchComboboxProps {
   eventId?: string;
 }
 
+// Helper function to extract guest name from formatted display name
+// e.g. "Hannah Montana (•••• 1234)" -> "Hannah Montana"
+function extractGuestNameFromSuggestion(suggestion: string): string {
+  // Remove phone number part if it exists
+  const phonePattern = /\s*\([•\s\d]+\)\s*$/;
+  return suggestion.replace(phonePattern, "").trim();
+}
+
 export function GuestSearchCombobox({
   value,
   onValueChange,
@@ -39,6 +47,7 @@ export function GuestSearchCombobox({
   const [open, setOpen] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [selectedIndex, setSelectedIndex] = React.useState(-1);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -58,6 +67,7 @@ export function GuestSearchCombobox({
         console.log("🔍 Query too short, clearing suggestions");
         setSuggestions([]);
         setOpen(false);
+        setSelectedIndex(-1);
         return;
       }
 
@@ -81,16 +91,19 @@ export function GuestSearchCombobox({
         if (data.success && data.suggestions) {
           setSuggestions(data.suggestions);
           setOpen(data.suggestions.length > 0);
+          setSelectedIndex(-1);
           console.log("✅ Suggestions updated:", data.suggestions);
         } else {
           setSuggestions([]);
           setOpen(false);
+          setSelectedIndex(-1);
           console.log("❌ No suggestions received");
         }
       } catch (error) {
         console.error("❌ Error fetching suggestions:", error);
         setSuggestions([]);
         setOpen(false);
+        setSelectedIndex(-1);
       } finally {
         setLoading(false);
       }
@@ -102,6 +115,7 @@ export function GuestSearchCombobox({
     (inputValue: string) => {
       console.log("📝 Input change:", inputValue);
       onValueChange(inputValue);
+      setSelectedIndex(-1);
 
       // Clear existing debounce
       if (debounceRef.current) {
@@ -120,12 +134,23 @@ export function GuestSearchCombobox({
   const handleSelect = React.useCallback(
     (selectedValue: string) => {
       console.log("🎯 User selected suggestion:", selectedValue);
-      onSelect(selectedValue);
+
+      // Extract the actual guest name from the formatted suggestion
+      const guestName = extractGuestNameFromSuggestion(selectedValue);
+      console.log("🔧 Extracted guest name:", guestName);
+
+      // Call onSelect with the clean guest name for search
+      onSelect(guestName);
+
+      // Update the input value to show the clean name
+      onValueChange(guestName);
+
       setOpen(false);
       setSuggestions([]);
+      setSelectedIndex(-1);
       inputRef.current?.blur();
     },
-    [onSelect]
+    [onSelect, onValueChange]
   );
 
   const handleInputFocus = React.useCallback(() => {
@@ -138,6 +163,7 @@ export function GuestSearchCombobox({
     // Delay closing to allow for suggestion clicks
     setTimeout(() => {
       setOpen(false);
+      setSelectedIndex(-1);
     }, 150);
   }, []);
 
@@ -145,15 +171,46 @@ export function GuestSearchCombobox({
     onValueChange("");
     setSuggestions([]);
     setOpen(false);
+    setSelectedIndex(-1);
     inputRef.current?.focus();
   }, [onValueChange]);
 
-  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      setOpen(false);
-      inputRef.current?.blur();
-    }
-  }, []);
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setSelectedIndex(-1);
+        inputRef.current?.blur();
+        return;
+      }
+
+      if (!open || suggestions.length === 0) {
+        return;
+      }
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        );
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        );
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+          // Select the highlighted suggestion
+          handleSelect(suggestions[selectedIndex]);
+        } else if (suggestions.length > 0) {
+          // Select the first suggestion if none is highlighted
+          handleSelect(suggestions[0]);
+        }
+      }
+    },
+    [open, suggestions, selectedIndex, handleSelect]
+  );
 
   // Cleanup on unmount
   React.useEffect(() => {
@@ -266,21 +323,42 @@ export function GuestSearchCombobox({
 
                   {suggestions.map((suggestion, index) => {
                     console.log("🎨 Rendering suggestion:", suggestion);
+                    const guestName =
+                      extractGuestNameFromSuggestion(suggestion);
+                    const isSelected = index === selectedIndex;
                     return (
                       <CommandItem
                         key={`${suggestion}-${index}`}
                         value={suggestion}
                         onSelect={() => handleSelect(suggestion)}
-                        className="cursor-pointer mx-1 p-3 rounded-lg border border-transparent hover:border-purple-200/50 hover:bg-gradient-to-r hover:from-purple-50/80 hover:to-pink-50/80 transition-all duration-200 group"
+                        className={cn(
+                          "cursor-pointer mx-1 p-3 rounded-lg border transition-all duration-200 group",
+                          isSelected
+                            ? "border-purple-300 bg-gradient-to-r from-purple-100 to-pink-100"
+                            : "border-transparent hover:border-purple-200/50 hover:bg-gradient-to-r hover:from-purple-50/80 hover:to-pink-50/80"
+                        )}
                         onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={() => setSelectedIndex(index)}
                       >
                         <div className="flex items-center gap-3 w-full">
-                          <div className="w-8 h-8 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-200 flex-shrink-0">
+                          <div
+                            className={cn(
+                              "w-8 h-8 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full flex items-center justify-center transition-transform duration-200 flex-shrink-0",
+                              isSelected ? "scale-110" : "group-hover:scale-110"
+                            )}
+                          >
                             <Search className="h-4 w-4 text-purple-600" />
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-gray-800 group-hover:text-purple-700 transition-colors duration-200 truncate">
+                            <p
+                              className={cn(
+                                "font-semibold transition-colors duration-200 truncate",
+                                isSelected
+                                  ? "text-purple-700"
+                                  : "text-gray-800 group-hover:text-purple-700"
+                              )}
+                            >
                               {suggestion}
                             </p>
                           </div>
@@ -288,8 +366,10 @@ export function GuestSearchCombobox({
                           <Check
                             className={cn(
                               "h-4 w-4 text-purple-600 transition-opacity duration-200 flex-shrink-0",
-                              value === suggestion
+                              value === guestName
                                 ? "opacity-100"
+                                : isSelected
+                                ? "opacity-75"
                                 : "opacity-0 group-hover:opacity-50"
                             )}
                           />
@@ -301,10 +381,10 @@ export function GuestSearchCombobox({
               )}
             </CommandList>
 
-            {/* Scroll indicator */}
+            {/* Enhanced scroll indicator */}
             {suggestions.length > 5 && (
               <div className="px-4 py-2 text-xs text-purple-600 bg-purple-50/80 border-t border-purple-100 text-center font-medium rounded-b-xl">
-                ↕ Scroll to see more results
+                ↕ Scroll to see more • Press ↑↓ to navigate • Enter to select
               </div>
             )}
           </Command>
