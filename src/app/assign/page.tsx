@@ -701,6 +701,8 @@ function AssignPageContent() {
 
     // Clear unassigned guests since they're all assigned now
     setUnassignedGuests([]);
+    // Clear selected guests since they've all been assigned
+    setSelectedGuests(new Set());
     setHasUnsavedChanges(true);
 
     setSuccess(

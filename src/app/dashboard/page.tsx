@@ -30,6 +30,7 @@ import {
   Table,
   Trash2,
   User,
+  RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
@@ -234,6 +235,12 @@ export default function DashboardPage() {
         return Trash2;
       case "profile_updated":
         return User;
+      case "theme_changed":
+        return Sparkles;
+      case "appearance_customized":
+        return Settings;
+      case "appearance_reset":
+        return RotateCcw;
       default:
         return Clock;
     }
@@ -250,6 +257,9 @@ export default function DashboardPage() {
         return "completed";
       case "guests_imported":
       case "tables_assigned":
+      case "theme_changed":
+      case "appearance_customized":
+      case "appearance_reset":
         return "completed";
       default:
         return "in-progress";

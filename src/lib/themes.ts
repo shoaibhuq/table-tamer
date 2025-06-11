@@ -160,6 +160,39 @@ export const themes: Theme[] = [
       focusRing: "focus:ring-blue-500",
     },
   },
+  {
+    id: "lotus-shapla",
+    name: "Lotus Shapla",
+    description:
+      "A Bengali-Vietnamese wedding theme inspired by the sacred Lotus and pure Shapla flowers",
+    preview: "🪷",
+    category: "elegant",
+    colors: {
+      background: "from-rose-900 via-pink-800 to-amber-900",
+      primary: "from-pink-500 via-rose-400 to-amber-500",
+      secondary: "from-pink-100 to-amber-100",
+      accent: "from-rose-300 to-amber-300",
+      text: "text-white",
+      textSecondary: "text-pink-100",
+      cardBg: "bg-white/95 backdrop-blur-xl",
+      inputBg: "bg-white/98",
+    },
+    animations: {
+      entrance: "animate-fade-in animate-bloom",
+      hover: "hover:scale-105 hover:shadow-pink-500/30",
+      focus: "focus:ring-4 focus:ring-pink-300",
+    },
+    decorations: {
+      flora: true,
+      particles: true,
+      orbs: true,
+    },
+    accessibility: {
+      highContrast: true,
+      reduceMotion: false,
+      focusRing: "focus:ring-pink-500",
+    },
+  },
 ];
 
 export const getThemeById = (id: string): Theme => {

@@ -26,6 +26,9 @@ export async function GET(
         name: event.name,
         description: event.description,
         theme: event.theme,
+        customTitle: event.customTitle,
+        customSubtitle: event.customSubtitle,
+        customWelcomeMessage: event.customWelcomeMessage,
       },
     });
   } catch (error) {

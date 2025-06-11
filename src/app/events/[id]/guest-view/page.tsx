@@ -54,6 +54,9 @@ interface Event {
   name: string;
   description: string | null;
   theme?: string;
+  customTitle?: string | null;
+  customSubtitle?: string | null;
+  customWelcomeMessage?: string | null;
 }
 
 interface EventLink {
@@ -334,9 +337,21 @@ export default function EventGuestViewPage() {
               <div className="flex items-center justify-center gap-1 sm:gap-2">
                 <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-purple-400 animate-pulse" />
                 <h1
-                  className={`text-2xl sm:text-4xl md:text-5xl font-black ${themeClasses.secondaryGradient} bg-clip-text text-transparent drop-shadow-lg animate-shimmer leading-tight px-2`}
+                  className={`text-2xl sm:text-4xl md:text-5xl font-black ${themeClasses.secondaryGradient} bg-clip-text text-transparent drop-shadow-lg animate-shimmer leading-tight px-2 break-words text-center max-w-full`}
+                  style={{
+                    wordBreak: "break-word",
+                    overflowWrap: "break-word",
+                    hyphens: "auto",
+                  }}
                 >
-                  {event?.name || "Event Guest Finder"}
+                  {(event?.customTitle || event?.name || "Event Guest Finder")
+                    .length > 50
+                    ? `${(
+                        event?.customTitle ||
+                        event?.name ||
+                        "Event Guest Finder"
+                      ).substring(0, 50)}...`
+                    : event?.customTitle || event?.name || "Event Guest Finder"}
                 </h1>
                 <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-pink-400 animate-pulse" />
               </div>
@@ -345,11 +360,23 @@ export default function EventGuestViewPage() {
                 className={`h-1 w-20 sm:w-24 ${themeClasses.accentGradient} mx-auto rounded-full shadow-lg`}
               ></div>
 
-              {event?.description && (
+              {(event?.customSubtitle || event?.description) && (
                 <p
-                  className={`${themeClasses.textSecondaryColor} text-sm sm:text-base max-w-xs sm:max-w-sm mx-auto leading-relaxed font-medium bg-white/20 backdrop-blur-sm rounded-full px-4 sm:px-6 py-2`}
+                  className={`${themeClasses.textSecondaryColor} text-sm sm:text-base max-w-xs sm:max-w-md mx-auto leading-relaxed font-medium bg-white/20 backdrop-blur-sm rounded-2xl px-4 sm:px-6 py-2 sm:py-3 break-words text-center`}
+                  style={{
+                    wordBreak: "break-word",
+                    overflowWrap: "break-word",
+                    hyphens: "auto",
+                  }}
                 >
-                  {event.description}
+                  {(event.customSubtitle || event.description || "").length >
+                  100
+                    ? `${(
+                        event.customSubtitle ||
+                        event.description ||
+                        ""
+                      ).substring(0, 100)}...`
+                    : event.customSubtitle || event.description}
                 </p>
               )}
             </div>
@@ -681,9 +708,22 @@ export default function EventGuestViewPage() {
                 </div>
 
                 <div className="space-y-2 sm:space-y-3">
-                  <p className="text-white/90 font-semibold text-sm sm:text-base md:text-lg drop-shadow-lg leading-relaxed">
-                    Use your full name as shown on the invitation for best
-                    results
+                  <p
+                    className="text-white/90 font-semibold text-sm sm:text-base md:text-lg drop-shadow-lg leading-relaxed break-words text-center max-w-2xl mx-auto px-2"
+                    style={{
+                      wordBreak: "break-word",
+                      overflowWrap: "break-word",
+                      hyphens: "auto",
+                    }}
+                  >
+                    {(() => {
+                      const message =
+                        event?.customWelcomeMessage ||
+                        "Use your full name as shown on the invitation for best results";
+                      return message.length > 200
+                        ? `${message.substring(0, 200)}...`
+                        : message;
+                    })()}
                   </p>
 
                   {/* Animated Hint */}

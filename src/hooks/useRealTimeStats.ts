@@ -37,7 +37,10 @@ interface Activity {
     | "guest_deleted"
     | "table_deleted"
     | "tables_deleted"
-    | "profile_updated";
+    | "profile_updated"
+    | "theme_changed"
+    | "appearance_customized"
+    | "appearance_reset";
   title: string;
   description: string;
   eventId?: string;

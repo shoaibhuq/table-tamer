@@ -15,7 +15,10 @@ export interface ActivityEvent {
     | "guest_deleted"
     | "table_deleted"
     | "tables_deleted"
-    | "profile_updated";
+    | "profile_updated"
+    | "theme_changed"
+    | "appearance_customized"
+    | "appearance_reset";
   title: string;
   description: string;
   eventId?: string;
@@ -333,6 +336,73 @@ export class AnalyticsService {
       },
     });
   }
+
+  /**
+   * Log theme change
+   */
+  static async logThemeChanged(
+    userId: string,
+    eventId: string,
+    eventName: string,
+    themeName: string
+  ): Promise<void> {
+    await this.logActivity(userId, {
+      type: "theme_changed",
+      title: `Changed theme to "${themeName}"`,
+      description: `Updated guest view theme for "${eventName}"`,
+      eventId,
+      eventName,
+      metadata: {
+        action: "update",
+        resource: "theme",
+        themeName,
+      },
+    });
+  }
+
+  /**
+   * Log appearance customization
+   */
+  static async logAppearanceCustomized(
+    userId: string,
+    eventId: string,
+    eventName: string,
+    customizations: string[]
+  ): Promise<void> {
+    await this.logActivity(userId, {
+      type: "appearance_customized",
+      title: "Customized guest view appearance",
+      description: `Updated ${customizations.join(", ")} for "${eventName}"`,
+      eventId,
+      eventName,
+      metadata: {
+        action: "customize",
+        resource: "appearance",
+        customizations,
+      },
+    });
+  }
+
+  /**
+   * Log appearance reset to defaults
+   */
+  static async logAppearanceReset(
+    userId: string,
+    eventId: string,
+    eventName: string
+  ): Promise<void> {
+    await this.logActivity(userId, {
+      type: "appearance_reset",
+      title: "Reset appearance to defaults",
+      description: `Restored default appearance settings for "${eventName}"`,
+      eventId,
+      eventName,
+      metadata: {
+        action: "reset",
+        resource: "appearance",
+      },
+    });
+  }
 }
 
 // Export convenience methods with proper binding
@@ -427,3 +497,29 @@ export const logTablesDeleted = (
 
 export const logProfileUpdated = (userId: string, changes: string[]) =>
   AnalyticsService.logProfileUpdated(userId, changes);
+
+export const logThemeChanged = (
+  userId: string,
+  eventId: string,
+  eventName: string,
+  themeName: string
+) => AnalyticsService.logThemeChanged(userId, eventId, eventName, themeName);
+
+export const logAppearanceCustomized = (
+  userId: string,
+  eventId: string,
+  eventName: string,
+  customizations: string[]
+) =>
+  AnalyticsService.logAppearanceCustomized(
+    userId,
+    eventId,
+    eventName,
+    customizations
+  );
+
+export const logAppearanceReset = (
+  userId: string,
+  eventId: string,
+  eventName: string
+) => AnalyticsService.logAppearanceReset(userId, eventId, eventName);

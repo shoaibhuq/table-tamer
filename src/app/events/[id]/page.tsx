@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +39,9 @@ import {
   logGuestAdded,
   logGuestDeleted,
   logEventUpdated,
+  logThemeChanged,
+  logAppearanceCustomized,
+  logAppearanceReset,
 } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -69,6 +72,7 @@ const matchesLocalGuestSearch = (guest: Guest, searchTerm: string): boolean => {
   );
 };
 import { ThemeSelector } from "@/components/ui/theme-selector";
+import { themes } from "@/lib/themes";
 import { EventLinksManager } from "@/components/event-links-manager";
 import { EventLink } from "@/lib/firestore";
 import { TableSelector } from "@/components/ui/table-selector";
@@ -109,6 +113,9 @@ interface Event {
   name: string;
   description: string | null;
   theme?: string;
+  customTitle?: string | null;
+  customSubtitle?: string | null;
+  customWelcomeMessage?: string | null;
   createdAt: string | { seconds: number; nanoseconds: number };
   updatedAt: string | { seconds: number; nanoseconds: number };
   guests: Guest[];
@@ -118,6 +125,28 @@ interface Event {
     tables: number;
   };
 }
+
+// Simple character counter with throttled updates
+const CharacterCounter = ({
+  current,
+  max,
+}: {
+  current: number;
+  max: number;
+}) => {
+  const [displayCount, setDisplayCount] = useState(current);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDisplayCount(current), 16); // 60fps throttle
+    return () => clearTimeout(timer);
+  }, [current]);
+
+  return (
+    <div className="absolute bottom-2 right-3 text-xs text-gray-500 bg-white px-2 py-1 rounded">
+      {displayCount}/{max}
+    </div>
+  );
+};
 
 export default function EventDetailPage() {
   const params = useParams();
@@ -174,6 +203,18 @@ export default function EventDetailPage() {
   const [eventLinks, setEventLinks] = useState<EventLink[]>([]);
   const [linksLoading, setLinksLoading] = useState(false);
 
+  // Theme customization state
+  const [showThemeDialog, setShowThemeDialog] = useState(false);
+  const [customTitle, setCustomTitle] = useState("");
+  const [customSubtitle, setCustomSubtitle] = useState("");
+  const [customWelcomeMessage, setCustomWelcomeMessage] = useState("");
+  const [originalCustomTitle, setOriginalCustomTitle] = useState("");
+  const [originalCustomSubtitle, setOriginalCustomSubtitle] = useState("");
+  const [originalCustomWelcomeMessage, setOriginalCustomWelcomeMessage] =
+    useState("");
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+
   const fetchEvent = useCallback(async () => {
     try {
       const data = (await authenticatedJsonFetch(`/api/events/${eventId}`)) as {
@@ -185,6 +226,15 @@ export default function EventDetailPage() {
         setEvent(data.event);
         setEditName(data.event.name);
         setEditDescription(data.event.description || "");
+        const title = data.event.customTitle || "";
+        const subtitle = data.event.customSubtitle || "";
+        const welcome = data.event.customWelcomeMessage || "";
+        setCustomTitle(title);
+        setCustomSubtitle(subtitle);
+        setCustomWelcomeMessage(welcome);
+        setOriginalCustomTitle(title);
+        setOriginalCustomSubtitle(subtitle);
+        setOriginalCustomWelcomeMessage(welcome);
       } else {
         setError(data.error || "Failed to fetch event.");
       }
@@ -262,7 +312,7 @@ export default function EventDetailPage() {
 
     if (
       !confirm(
-        `Are you sure you want to reset "${event.name}"? This will remove all tables and table assignments, but keep the guests.`
+        `Are you sure you want to reset "${event.name}"? This will remove all tables and table assignments, reset appearance customization to defaults, but keep the guests.`
       )
     ) {
       return;
@@ -453,6 +503,14 @@ export default function EventDetailPage() {
 
       if (data.success) {
         setSuccess("Theme updated successfully!");
+
+        // Log theme change activity
+        if (user?.uid) {
+          const themeName =
+            themes.find((t) => t.id === themeId)?.name || themeId;
+          await logThemeChanged(user.uid, eventId, event.name, themeName);
+        }
+
         await fetchEvent();
       } else {
         setError(data.error || "Failed to update theme.");
@@ -462,6 +520,127 @@ export default function EventDetailPage() {
       setError("Failed to update theme.");
     } finally {
       setThemeLoading(false);
+    }
+  };
+
+  const handleSaveCustomization = async () => {
+    if (!event) return;
+
+    setSaveLoading(true);
+    setError(null);
+
+    try {
+      const data = (await authenticatedJsonFetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          customTitle: customTitle.trim() || null,
+          customSubtitle: customSubtitle.trim() || null,
+          customWelcomeMessage: customWelcomeMessage.trim() || null,
+        }),
+      })) as { success: boolean; error?: string };
+
+      if (data.success) {
+        setSuccess("Customization saved successfully!");
+
+        // Log appearance customization activity
+        if (user?.uid) {
+          const customizations = [];
+          if (customTitle.trim() !== originalCustomTitle.trim())
+            customizations.push("title");
+          if (customSubtitle.trim() !== originalCustomSubtitle.trim())
+            customizations.push("subtitle");
+          if (
+            customWelcomeMessage.trim() !== originalCustomWelcomeMessage.trim()
+          )
+            customizations.push("welcome message");
+
+          if (customizations.length > 0) {
+            await logAppearanceCustomized(
+              user.uid,
+              eventId,
+              event.name,
+              customizations
+            );
+          }
+        }
+
+        setShowThemeDialog(false);
+        await fetchEvent();
+      } else {
+        setError(data.error || "Failed to save customization.");
+      }
+    } catch (error) {
+      console.error("Error saving customization:", error);
+      setError("Failed to save customization.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  // Throttled change detection
+  const hasChanges = useMemo(() => {
+    return (
+      customTitle.trim() !== originalCustomTitle.trim() ||
+      customSubtitle.trim() !== originalCustomSubtitle.trim() ||
+      customWelcomeMessage.trim() !== originalCustomWelcomeMessage.trim()
+    );
+  }, [
+    customTitle,
+    originalCustomTitle,
+    customSubtitle,
+    originalCustomSubtitle,
+    customWelcomeMessage,
+    originalCustomWelcomeMessage,
+  ]);
+
+  const handleRestoreDefaults = async () => {
+    if (!event) return;
+
+    if (
+      !confirm(
+        "Are you sure you want to restore all appearance settings to default? This will clear your custom title, subtitle, and welcome message."
+      )
+    ) {
+      return;
+    }
+
+    setRestoreLoading(true);
+    setError(null);
+
+    try {
+      const data = (await authenticatedJsonFetch(`/api/events/${eventId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          customTitle: null,
+          customSubtitle: null,
+          customWelcomeMessage: null,
+        }),
+      })) as { success: boolean; error?: string };
+
+      if (data.success) {
+        setSuccess("Appearance restored to defaults successfully!");
+
+        // Log appearance reset activity
+        if (user?.uid) {
+          await logAppearanceReset(user.uid, eventId, event.name);
+        }
+
+        setCustomTitle("");
+        setCustomSubtitle("");
+        setCustomWelcomeMessage("");
+        setOriginalCustomTitle("");
+        setOriginalCustomSubtitle("");
+        setOriginalCustomWelcomeMessage("");
+        setShowThemeDialog(false);
+        await fetchEvent();
+      } else {
+        setError(data.error || "Failed to restore defaults.");
+      }
+    } catch (error) {
+      console.error("Error restoring defaults:", error);
+      setError("Failed to restore defaults.");
+    } finally {
+      setRestoreLoading(false);
     }
   };
 
@@ -1058,79 +1237,181 @@ export default function EventDetailPage() {
           </div>
 
           {/* Quick Actions */}
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
+          <Card className="mb-8 bg-gradient-to-br from-white to-gray-50/50 border-0 shadow-lg">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl font-bold text-gray-900 flex items-center">
+                <Settings className="w-6 h-6 mr-3 text-blue-600" />
+                Quick Actions
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-4">
-                <Link href={`/events/${event.id}/import`}>
-                  <Button>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Import Guests
-                  </Button>
-                </Link>
-                {event.guests.length === 0 ? (
-                  <Button
-                    variant="outline"
-                    disabled={true}
-                    title="Import guests first to enable table assignment"
-                  >
-                    <Users className="w-4 h-4 mr-2" />
-                    Assign Tables
-                  </Button>
-                ) : (
-                  <Link href={`/assign?eventId=${event.id}`}>
-                    <Button variant="outline">
-                      <Users className="w-4 h-4 mr-2" />
-                      Assign Tables
-                    </Button>
-                  </Link>
-                )}
-                <Link
-                  href={`/events/${event.id}/guest-view`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Button variant="outline">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Guest View
-                  </Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowLinksDialog(true);
-                    fetchEventLinks();
-                  }}
-                >
-                  <LinkIcon className="w-4 h-4 mr-2" />
-                  Manage Guest View Links
-                </Button>
-                <ThemeSelector
-                  currentTheme={event.theme || "cosmic-purple"}
-                  onThemeChange={handleThemeChange}
-                  loading={themeLoading}
-                />
-                {event.tables.length > 0 && (
-                  <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Guest Management Section */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center">
+                    <Users className="w-4 h-4 mr-2 text-purple-600" />
+                    Guest Management
+                  </h3>
+                  <div className="space-y-3">
+                    <Link href={`/events/${event.id}/import`} className="block">
+                      <Button className="w-full justify-start h-12 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg hover:shadow-xl transition-all duration-300">
+                        <Upload className="w-5 h-5 mr-3" />
+                        <div className="text-left">
+                          <div className="font-medium">Import Guests</div>
+                          <div className="text-xs text-blue-100">
+                            Upload CSV file
+                          </div>
+                        </div>
+                      </Button>
+                    </Link>
+
+                    {event.guests.length === 0 ? (
+                      <Button
+                        variant="outline"
+                        disabled={true}
+                        className="w-full justify-start h-12 opacity-50 cursor-not-allowed"
+                        title="Import guests first to enable table assignment"
+                      >
+                        <Users className="w-5 h-5 mr-3" />
+                        <div className="text-left">
+                          <div className="font-medium">Assign/Edit Tables</div>
+                          <div className="text-xs text-gray-400">
+                            Requires guests
+                          </div>
+                        </div>
+                      </Button>
+                    ) : (
+                      <Link
+                        href={`/assign?eventId=${event.id}`}
+                        className="block"
+                      >
+                        <Button
+                          variant="outline"
+                          className="w-full justify-start h-12 border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 text-purple-700 hover:text-purple-800"
+                        >
+                          <Users className="w-5 h-5 mr-3" />
+                          <div className="text-left">
+                            <div className="font-medium">
+                              Assign/Edit Tables
+                            </div>
+                            <div className="text-xs text-purple-600">
+                              Organize seating
+                            </div>
+                          </div>
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </div>
+
+                {/* Event Sharing Section */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center">
+                    <Calendar className="w-4 h-4 mr-2 text-green-600" />
+                    Event Sharing
+                  </h3>
+                  <div className="space-y-3">
+                    <Link
+                      href={`/events/${event.id}/guest-view`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start h-12 border-2 border-green-200 hover:border-green-400 hover:bg-green-50 text-green-700 hover:text-green-800"
+                      >
+                        <Calendar className="w-5 h-5 mr-3" />
+                        <div className="text-left">
+                          <div className="font-medium">Open Guest View</div>
+                          <div className="text-xs text-green-600">
+                            Preview & share
+                          </div>
+                        </div>
+                      </Button>
+                    </Link>
+
                     <Button
                       variant="outline"
-                      onClick={() => setShowRenameDialog(true)}
+                      onClick={() => {
+                        setShowLinksDialog(true);
+                        fetchEventLinks();
+                      }}
+                      className="w-full justify-start h-12 border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 text-orange-700 hover:text-orange-800"
                     >
-                      <FileText className="w-4 h-4 mr-2" />
-                      Rename All Tables
+                      <LinkIcon className="w-5 h-5 mr-3" />
+                      <div className="text-left">
+                        <div className="font-medium">Manage Links</div>
+                        <div className="text-xs text-orange-600">
+                          Custom guest links
+                        </div>
+                      </div>
                     </Button>
+
                     <Button
                       variant="outline"
-                      onClick={() => setShowRemoveAllTablesDialog(true)}
-                      className="border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600 hover:text-red-700"
+                      onClick={() => setShowThemeDialog(true)}
+                      className="w-full justify-start h-12 border-2 border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-700 hover:text-indigo-800"
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Remove All Tables
+                      <Settings className="w-5 h-5 mr-3" />
+                      <div className="text-left">
+                        <div className="font-medium">Customize Appearance</div>
+                        <div className="text-xs text-indigo-600">
+                          Theme & guest view
+                        </div>
+                      </div>
                     </Button>
-                  </>
-                )}
+                  </div>
+                </div>
+
+                {/* Table Management Section */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center">
+                    <Settings className="w-4 h-4 mr-2 text-pink-600" />
+                    Table Management
+                  </h3>
+                  <div className="space-y-3">
+                    {event.tables.length > 0 ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowRenameDialog(true)}
+                          className="w-full justify-start h-12 border-2 border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-700 hover:text-indigo-800"
+                        >
+                          <FileText className="w-5 h-5 mr-3" />
+                          <div className="text-left">
+                            <div className="font-medium">Rename All Tables</div>
+                            <div className="text-xs text-indigo-600">
+                              Bulk rename
+                            </div>
+                          </div>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowRemoveAllTablesDialog(true)}
+                          className="w-full justify-start h-12 border-2 border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="w-5 h-5 mr-3" />
+                          <div className="text-left">
+                            <div className="font-medium">Remove All Tables</div>
+                            <div className="text-xs text-red-500">
+                              Clear all tables
+                            </div>
+                          </div>
+                        </Button>
+                      </>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <Settings className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p className="text-sm">No tables to manage yet</p>
+                        <p className="text-xs text-gray-400">
+                          Create tables first to access management options
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1897,6 +2178,180 @@ export default function EventDetailPage() {
                 className="border-2 border-gray-300 hover:border-gray-400 px-6"
               >
                 Done
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Theme & Customization Dialog */}
+        <Dialog open={showThemeDialog} onOpenChange={setShowThemeDialog}>
+          <DialogContent className="sm:max-w-2xl bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
+            <DialogHeader>
+              <div className="flex items-center mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center mr-3">
+                  <Settings className="w-6 h-6 text-white" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-gray-900">
+                  Customize Appearance
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-gray-600 text-lg">
+                Customize the theme and guest view appearance for &ldquo;
+                {event?.name}&rdquo;
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-6 space-y-6">
+              {/* Theme Selection */}
+              <div className="space-y-3">
+                <Label className="text-lg font-semibold text-gray-900">
+                  Theme
+                </Label>
+                <p className="text-sm text-gray-600">
+                  Choose the visual style for your guest view
+                </p>
+                <ThemeSelector
+                  currentTheme={event?.theme || "cosmic-purple"}
+                  onThemeChange={handleThemeChange}
+                  loading={themeLoading}
+                />
+              </div>
+
+              {/* Custom Title */}
+              <div className="space-y-3">
+                <Label
+                  htmlFor="custom-title"
+                  className="text-lg font-semibold text-gray-900"
+                >
+                  Custom Title
+                </Label>
+                <p className="text-sm text-gray-600">
+                  Override the default title shown to guests (max 50 characters)
+                </p>
+                <div className="relative">
+                  <Input
+                    id="custom-title"
+                    placeholder={`Default: "${event?.name}"`}
+                    value={customTitle}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= 50) {
+                        setCustomTitle(value);
+                      }
+                    }}
+                    className="text-base py-3 border-2 border-gray-200 focus:border-indigo-400 rounded-xl pr-16"
+                    maxLength={50}
+                  />
+                  <CharacterCounter current={customTitle.length} max={50} />
+                </div>
+              </div>
+
+              {/* Custom Subtitle */}
+              <div className="space-y-3">
+                <Label
+                  htmlFor="custom-subtitle"
+                  className="text-lg font-semibold text-gray-900"
+                >
+                  Custom Subtitle
+                </Label>
+                <p className="text-sm text-gray-600">
+                  Add a subtitle or tagline for your event (max 100 characters)
+                </p>
+                <div className="relative">
+                  <Input
+                    id="custom-subtitle"
+                    placeholder="e.g., Join us for an unforgettable evening"
+                    value={customSubtitle}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= 100) {
+                        setCustomSubtitle(value);
+                      }
+                    }}
+                    className="text-base py-3 border-2 border-gray-200 focus:border-indigo-400 rounded-xl pr-16"
+                    maxLength={100}
+                  />
+                  <CharacterCounter current={customSubtitle.length} max={100} />
+                </div>
+              </div>
+
+              {/* Custom Welcome Message */}
+              <div className="space-y-3">
+                <Label
+                  htmlFor="custom-welcome"
+                  className="text-lg font-semibold text-gray-900"
+                >
+                  Welcome Message
+                </Label>
+                <p className="text-sm text-gray-600">
+                  Customize the welcome message shown to guests (max 200
+                  characters)
+                </p>
+                <div className="relative">
+                  <textarea
+                    id="custom-welcome"
+                    placeholder="e.g., Welcome! Please find your table assignment below and enjoy the celebration."
+                    value={customWelcomeMessage}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= 200) {
+                        setCustomWelcomeMessage(value);
+                      }
+                    }}
+                    className="w-full p-3 border-2 border-gray-200 focus:border-indigo-400 rounded-xl resize-none text-base leading-relaxed"
+                    rows={4}
+                    maxLength={200}
+                  />
+                  <CharacterCounter
+                    current={customWelcomeMessage.length}
+                    max={200}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowThemeDialog(false)}
+                className="border-2 border-gray-300 hover:border-gray-400 px-6"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleRestoreDefaults}
+                disabled={restoreLoading || saveLoading}
+                className="border-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50 text-orange-700 hover:text-orange-800 px-6"
+              >
+                {restoreLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Restoring...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Restore to Default
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleSaveCustomization}
+                disabled={saveLoading || restoreLoading || !hasChanges}
+                className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saveLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Settings className="w-4 h-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

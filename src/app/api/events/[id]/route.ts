@@ -133,7 +133,14 @@ export async function PATCH(
     }
 
     const { id: eventId } = await params;
-    const { name, description, theme } = await req.json();
+    const {
+      name,
+      description,
+      theme,
+      customTitle,
+      customSubtitle,
+      customWelcomeMessage,
+    } = await req.json();
 
     // If updating name, validate it
     if (name !== undefined && (!name || !name.trim())) {
@@ -157,6 +164,9 @@ export async function PATCH(
       name?: string;
       description?: string | null;
       theme?: string;
+      customTitle?: string | null;
+      customSubtitle?: string | null;
+      customWelcomeMessage?: string | null;
     } = {};
     if (name !== undefined) {
       updateData.name = name.trim();
@@ -166,6 +176,15 @@ export async function PATCH(
     }
     if (theme !== undefined) {
       updateData.theme = theme;
+    }
+    if (customTitle !== undefined) {
+      updateData.customTitle = customTitle?.trim() || null;
+    }
+    if (customSubtitle !== undefined) {
+      updateData.customSubtitle = customSubtitle?.trim() || null;
+    }
+    if (customWelcomeMessage !== undefined) {
+      updateData.customWelcomeMessage = customWelcomeMessage?.trim() || null;
     }
 
     // Update the event

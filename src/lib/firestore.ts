@@ -25,6 +25,9 @@ export interface Event {
   name: string;
   description?: string | null;
   theme?: string;
+  customTitle?: string | null;
+  customSubtitle?: string | null;
+  customWelcomeMessage?: string | null;
   userId: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -229,6 +232,14 @@ export const eventService = {
       );
       const tablesSnapshot = await getDocs(tablesQuery);
       tablesSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+
+      // Reset custom appearance fields to defaults
+      batch.update(eventRef, {
+        customTitle: null,
+        customSubtitle: null,
+        customWelcomeMessage: null,
+        updatedAt: serverTimestamp(),
+      });
 
       await batch.commit();
     } else {
