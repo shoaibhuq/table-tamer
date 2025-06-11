@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { logProfileUpdated } from "@/lib/analytics";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -99,6 +100,22 @@ export default function ProfilePage() {
         displayName: formData.displayName.trim(),
         phoneNumber: formData.phoneNumber.trim() || undefined,
       });
+
+      // Log analytics
+      if (user?.uid) {
+        const changes: string[] = [];
+        if (formData.displayName.trim() !== (user.displayName || ""))
+          changes.push("display name");
+        if (
+          (formData.phoneNumber.trim() || "") !==
+          (userProfile?.phoneNumber || "")
+        )
+          changes.push("phone number");
+        if (changes.length > 0) {
+          await logProfileUpdated(user.uid, changes);
+        }
+      }
+
       setSuccess("Profile updated successfully!");
       setIsEditing(false);
     } catch (error) {
@@ -157,6 +174,12 @@ export default function ProfilePage() {
       await updateUserProfile({
         tableNamingPreferences: preferences,
       });
+
+      // Log analytics
+      if (user?.uid) {
+        await logProfileUpdated(user.uid, ["table naming preferences"]);
+      }
+
       setSuccess("Naming preferences saved successfully!");
     } catch (error) {
       console.error("Error saving naming preferences:", error);

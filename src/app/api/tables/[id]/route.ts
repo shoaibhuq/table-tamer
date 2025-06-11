@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tableService, Table } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
+import { logTableDeleted } from "@/lib/analytics";
+import { getDoc, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export async function PATCH(
   req: NextRequest,
@@ -72,6 +75,68 @@ export async function PATCH(
     console.error("Error updating table:", error);
     return NextResponse.json(
       { success: false, error: "Failed to update table" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const userId = await verifyAuthToken(req);
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const { id: tableId } = await params;
+
+    // Get table info before deletion for analytics
+    let tableName = "Unknown Table";
+    let eventId = "";
+    let eventName = "Unknown Event";
+
+    try {
+      // Get the table directly from Firestore
+      const tableDoc = await getDoc(doc(db, "tables", tableId));
+
+      if (tableDoc.exists()) {
+        const tableData = tableDoc.data();
+        tableName = tableData.name || "Unknown Table";
+        eventId = tableData.eventId;
+
+        // Get event name
+        if (eventId) {
+          const eventDoc = await getDoc(doc(db, "events", eventId));
+          eventName = eventDoc.exists()
+            ? eventDoc.data().name
+            : "Unknown Event";
+        }
+      }
+    } catch (error) {
+      console.error("Failed to get table info for analytics:", error);
+    }
+
+    await tableService.delete(userId, [tableId]);
+
+    // Log analytics after successful deletion
+    if (eventId) {
+      try {
+        await logTableDeleted(userId, eventId, eventName, tableName);
+      } catch (error) {
+        console.error("Failed to log table deletion analytics:", error);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting table:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to delete table" },
       { status: 500 }
     );
   }

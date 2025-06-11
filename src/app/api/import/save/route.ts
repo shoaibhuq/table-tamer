@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guestService, eventService, tableService } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
+import { AnalyticsService } from "@/lib/analytics";
 
 interface ProcessedGuest {
   firstName: string;
@@ -261,6 +262,36 @@ export async function POST(req: NextRequest) {
               ? ` Created ${tablesCreated} tables and assigned ${assignedGuests} guests.`
               : ""
           }`;
+
+    // Log analytics for successful guest import
+    if (successfulGuests.length > 0) {
+      try {
+        // Get event details for analytics
+        const event = await eventService.get(userId, eventId);
+        if (event) {
+          await AnalyticsService.logGuestsImported(
+            userId,
+            eventId,
+            event.name,
+            successfulGuests.length
+          );
+
+          // If tables were assigned, log that too
+          if (assignedGuests > 0) {
+            await AnalyticsService.logTablesAssigned(
+              userId,
+              eventId,
+              event.name,
+              tablesCreated,
+              assignedGuests
+            );
+          }
+        }
+      } catch (analyticsError) {
+        console.error("Analytics logging failed:", analyticsError);
+        // Don't fail the main operation for analytics errors
+      }
+    }
 
     return NextResponse.json({
       success: true,

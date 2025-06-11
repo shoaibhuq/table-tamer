@@ -31,6 +31,15 @@ import Link from "next/link";
 import { authenticatedJsonFetch } from "@/lib/api";
 // Removed unused import
 import { TableEditDialog } from "@/components/ui/table-edit-dialog";
+import { GuestEditDialog } from "@/components/ui/guest-edit-dialog";
+import { Guest as FirestoreGuest } from "@/lib/firestore";
+import { Timestamp } from "firebase/firestore";
+import {
+  logGuestAdded,
+  logGuestDeleted,
+  logEventUpdated,
+} from "@/lib/analytics";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Helper function to get full name from local Guest interface
 const getDisplayName = (guest: Guest): string => {
@@ -109,6 +118,7 @@ interface Event {
 export default function EventDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const eventId = params.id as string;
 
   const [event, setEvent] = useState<Event | null>(null);
@@ -143,6 +153,15 @@ export default function EventDetailPage() {
 
   // Guest search state
   const [guestSearchQuery, setGuestSearchQuery] = useState("");
+
+  // Guest edit state
+  const [editingGuest, setEditingGuest] = useState<FirestoreGuest | null>(null);
+
+  // Table deletion state
+  const [deletingTable, setDeletingTable] = useState<string | null>(null);
+  const [showRemoveAllTablesDialog, setShowRemoveAllTablesDialog] =
+    useState(false);
+  const [removingAllTables, setRemovingAllTables] = useState(false);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -260,6 +279,18 @@ export default function EventDetailPage() {
 
       if (data.success) {
         setSuccess("Event updated successfully!");
+
+        // Log analytics event
+        if (user?.uid && event) {
+          const changes: string[] = [];
+          if (editName.trim() !== event.name) changes.push("name");
+          if (editDescription.trim() !== (event.description || ""))
+            changes.push("description");
+          if (changes.length > 0) {
+            await logEventUpdated(user.uid, eventId, editName.trim(), changes);
+          }
+        }
+
         setIsEditing(false);
         await fetchEvent();
       } else {
@@ -308,6 +339,67 @@ export default function EventDetailPage() {
 
       // Revert local change on error
       await fetchEvent();
+    }
+  };
+
+  const handleDeleteTable = async (tableId: string, tableName: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${tableName}"? All guests assigned to this table will be unassigned.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingTable(tableId);
+    setError(null);
+
+    try {
+      const response = (await authenticatedJsonFetch(`/api/tables/${tableId}`, {
+        method: "DELETE",
+      })) as { success: boolean; error?: string };
+
+      if (response.success) {
+        setSuccess(`Table "${tableName}" has been deleted successfully.`);
+        await fetchEvent(); // Refresh the event data
+      } else {
+        setError(response.error || "Failed to delete table");
+      }
+    } catch (error) {
+      console.error("Error deleting table:", error);
+      setError("An unexpected error occurred while deleting the table");
+    } finally {
+      setDeletingTable(null);
+    }
+  };
+
+  const handleRemoveAllTables = async () => {
+    if (!event || event.tables.length === 0) return;
+
+    setRemovingAllTables(true);
+    setError(null);
+
+    try {
+      const tableIds = event.tables.map((table) => table.id);
+      const response = (await authenticatedJsonFetch("/api/tables", {
+        method: "DELETE",
+        body: JSON.stringify({ tableIds, eventId }),
+      })) as { success: boolean; error?: string };
+
+      if (response.success) {
+        setSuccess(
+          `All ${event.tables.length} tables have been deleted successfully.`
+        );
+        setShowRemoveAllTablesDialog(false);
+        await fetchEvent(); // Refresh the event data
+      } else {
+        setError(response.error || "Failed to delete all tables");
+      }
+    } catch (error) {
+      console.error("Error deleting all tables:", error);
+      setError("An unexpected error occurred while deleting all tables");
+    } finally {
+      setRemovingAllTables(false);
     }
   };
 
@@ -411,6 +503,12 @@ export default function EventDetailPage() {
 
       if (response.success) {
         setGuestSuccess("Guest added successfully!");
+
+        // Log analytics event
+        if (user?.uid && event) {
+          await logGuestAdded(user.uid, eventId, event.name, guestName.trim());
+        }
+
         // Reset form
         setGuestName("");
         setGuestEmail("");
@@ -452,6 +550,12 @@ export default function EventDetailPage() {
 
       if (response.success) {
         setSuccess(`"${guestName}" has been removed from the event.`);
+
+        // Log analytics event
+        if (user?.uid && event) {
+          await logGuestDeleted(user.uid, eventId, event.name, guestName);
+        }
+
         await fetchEvent(); // Refresh the event data
       } else {
         setError(response.error || "Failed to remove guest");
@@ -492,6 +596,49 @@ export default function EventDetailPage() {
       setError("An unexpected error occurred while removing guests");
     } finally {
       setRemovingAllGuests(false);
+    }
+  };
+
+  const handleEditGuest = (guest: Guest) => {
+    // Convert local Guest interface to firestore Guest interface
+    const firestoreGuest = {
+      ...guest,
+      phoneNumber: guest.phoneNumber || "",
+      email: guest.email || "",
+      eventId: eventId,
+      userId: "", // Will be filled by the API
+      tableId: guest.table?.id,
+      notes: "",
+      createdAt: { seconds: 0, nanoseconds: 0 } as Timestamp, // Placeholder, won't be used in edit
+      updatedAt: { seconds: 0, nanoseconds: 0 } as Timestamp, // Placeholder, won't be used in edit
+    };
+    setEditingGuest(firestoreGuest);
+  };
+
+  const handleSaveGuest = async (
+    guestId: string,
+    updates: Partial<FirestoreGuest>
+  ) => {
+    try {
+      const response = (await authenticatedJsonFetch(`/api/guests/${guestId}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      })) as { success: boolean; error?: string };
+
+      if (!response.success) {
+        throw new Error(response.error || "Failed to update guest");
+      }
+
+      setSuccess("Guest updated successfully!");
+      setTimeout(() => setSuccess(null), 3000);
+      await fetchEvent(); // Refresh the event data
+    } catch (error) {
+      console.error("Failed to update guest:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to update guest"
+      );
+      setTimeout(() => setError(null), 5000);
+      throw error; // Re-throw to let dialog handle it
     }
   };
 
@@ -711,18 +858,30 @@ export default function EventDetailPage() {
                       <Input
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        className="text-2xl font-bold"
+                        className="text-2xl font-bold p-3 border-2 border-gray-200 focus:border-blue-400 rounded-xl"
                         placeholder="Event name"
+                        maxLength={100}
                       />
                     </div>
                     <div>
-                      <textarea
-                        value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        className="w-full p-2 border rounded-md resize-none"
-                        rows={3}
-                        placeholder="Event description (optional)"
-                      />
+                      <div className="relative">
+                        <textarea
+                          value={editDescription}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value.length <= 200) {
+                              setEditDescription(value);
+                            }
+                          }}
+                          className="w-full p-3 border-2 border-gray-200 focus:border-blue-400 rounded-xl resize-none text-base leading-relaxed"
+                          rows={4}
+                          placeholder="Event description (optional, up to 200 characters)"
+                          maxLength={200}
+                        />
+                        <div className="absolute bottom-2 right-3 text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                          {editDescription.length}/200
+                        </div>
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <Button onClick={handleEditEvent} disabled={loading}>
@@ -747,7 +906,7 @@ export default function EventDetailPage() {
                       {event.name}
                     </h1>
                     {event.description && (
-                      <p className="text-lg text-gray-600 mb-2">
+                      <p className="text-lg text-gray-600 mb-2 whitespace-pre-wrap break-words leading-relaxed max-w-4xl">
                         {event.description}
                       </p>
                     )}
@@ -891,13 +1050,23 @@ export default function EventDetailPage() {
                   loading={themeLoading}
                 />
                 {event.tables.length > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowRenameDialog(true)}
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    Rename All Tables
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowRenameDialog(true)}
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Rename All Tables
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowRemoveAllTablesDialog(true)}
+                      className="border-red-200 hover:border-red-400 hover:bg-red-50 text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Remove All Tables
+                    </Button>
+                  </>
                 )}
               </div>
             </CardContent>
@@ -1047,6 +1216,22 @@ export default function EventDetailPage() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleDeleteTable(table.id, table.name)
+                            }
+                            disabled={deletingTable === table.id}
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            title="Delete table"
+                          >
+                            {deletingTable === table.id ? (
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-500"></div>
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1160,6 +1345,15 @@ export default function EventDetailPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                onClick={() => handleEditGuest(guest)}
+                                className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                                title={`Edit ${getDisplayName(guest)}`}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
                                 onClick={() =>
                                   handleDeleteGuest(
                                     guest.id,
@@ -1202,6 +1396,14 @@ export default function EventDetailPage() {
             onClose={() => setEditingTable(null)}
           />
         )}
+
+        {/* Guest Edit Dialog */}
+        <GuestEditDialog
+          guest={editingGuest}
+          open={!!editingGuest}
+          onOpenChange={(open) => !open && setEditingGuest(null)}
+          onSave={handleSaveGuest}
+        />
 
         {/* Table Rename Dialog */}
         <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
@@ -1488,6 +1690,72 @@ export default function EventDetailPage() {
                   <>
                     <UserX className="w-4 h-4 mr-2" />
                     Remove All {event?.guests.length} Guests
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Remove All Tables Dialog */}
+        <Dialog
+          open={showRemoveAllTablesDialog}
+          onOpenChange={setShowRemoveAllTablesDialog}
+        >
+          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-sm border-0 shadow-2xl">
+            <DialogHeader>
+              <div className="flex items-center mb-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center mr-3">
+                  <Trash2 className="w-6 h-6 text-white" />
+                </div>
+                <DialogTitle className="text-2xl font-bold text-gray-900">
+                  Remove All Tables
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-gray-600 text-lg">
+                This action will remove all {event?.tables.length} tables from
+                &ldquo;
+                {event?.name}&rdquo;. All guests will be unassigned.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-6">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start">
+                <AlertCircle className="w-5 h-5 text-amber-600 mr-3 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-amber-800 font-medium mb-1">Warning</p>
+                  <p className="text-amber-700 text-sm">
+                    This will permanently remove all tables and unassign all
+                    guests. You will need to recreate tables and reassign guests
+                    if needed.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveAllTablesDialog(false)}
+                className="border-2 border-gray-300 hover:border-gray-400 px-6"
+                disabled={removingAllTables}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRemoveAllTables}
+                disabled={removingAllTables}
+                className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg hover:shadow-xl transition-all duration-300 px-6"
+              >
+                {removingAllTables ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Removing All Tables...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Remove All {event?.tables.length} Tables
                   </>
                 )}
               </Button>

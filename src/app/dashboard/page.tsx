@@ -25,12 +25,19 @@ import {
   TrendingUp,
   Clock,
   Zap,
+  XCircle,
+  UserMinus,
+  Table,
+  Trash2,
+  User,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRealTimeStats } from "@/hooks/useRealTimeStats";
 
 export default function DashboardPage() {
   const { user, userProfile, loading, logout } = useAuth();
+  const { stats, recentActivity } = useRealTimeStats();
   const router = useRouter();
 
   useEffect(() => {
@@ -154,56 +161,100 @@ export default function DashboardPage() {
     },
   ];
 
-  const stats = [
+  const displayStats = [
     {
       title: "Total Events",
-      value: "12",
-      change: "+3 this month",
+      value: stats.totalEvents.toString(),
+      change: `+${stats.weeklyChange.events} this week`,
       icon: Calendar,
       color: "text-blue-600",
       bgColor: "bg-blue-100",
     },
     {
       title: "Guests Managed",
-      value: "1,248",
-      change: "+156 this week",
+      value: stats.totalGuests.toLocaleString(),
+      change: `+${stats.weeklyChange.guests} this week`,
       icon: Users,
       color: "text-emerald-600",
       bgColor: "bg-emerald-100",
     },
     {
       title: "Tables Assigned",
-      value: "89",
-      change: "+12 recently",
+      value: stats.totalTables.toString(),
+      change: `+${stats.weeklyChange.tables} this week`,
       icon: TrendingUp,
       color: "text-purple-600",
       bgColor: "bg-purple-100",
     },
   ];
 
-  const recentActivity = [
-    {
-      title: "Wedding Reception - Sarah & John",
-      description: "120 guests assigned to 12 tables",
-      time: "2 hours ago",
-      status: "completed",
-      icon: CheckCircle,
-    },
-    {
-      title: "Corporate Gala - Tech Summit",
-      description: "Guest list imported successfully",
-      time: "1 day ago",
-      status: "in-progress",
-      icon: Clock,
-    },
-    {
-      title: "Birthday Party - Emma&apos;s Sweet 16",
-      description: "Tables customized and named",
-      time: "3 days ago",
-      status: "completed",
-      icon: CheckCircle,
-    },
-  ];
+  const formatActivityTime = (timestamp: unknown) => {
+    if (!timestamp) return "Unknown time";
+
+    try {
+      const date = (timestamp as { toDate: () => Date }).toDate
+        ? (timestamp as { toDate: () => Date }).toDate()
+        : new Date(timestamp as string);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffHours < 1) return "Just now";
+      if (diffHours < 24)
+        return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+      if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+      return date.toLocaleDateString();
+    } catch {
+      return "Unknown time";
+    }
+  };
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case "event_created":
+        return CheckCircle;
+      case "event_deleted":
+        return XCircle;
+      case "event_updated":
+        return Settings;
+      case "event_completed":
+        return CheckCircle;
+      case "guests_imported":
+      case "guest_added":
+        return Users;
+      case "guest_deleted":
+        return UserMinus;
+      case "tables_assigned":
+      case "table_created":
+      case "tables_created":
+        return Table;
+      case "table_deleted":
+      case "tables_deleted":
+        return Trash2;
+      case "profile_updated":
+        return User;
+      default:
+        return Clock;
+    }
+  };
+
+  const getActivityStatus = (type: string) => {
+    switch (type) {
+      case "event_deleted":
+      case "guest_deleted":
+      case "table_deleted":
+      case "tables_deleted":
+        return "deleted";
+      case "event_completed":
+        return "completed";
+      case "guests_imported":
+      case "tables_assigned":
+        return "completed";
+      default:
+        return "in-progress";
+    }
+  };
 
   const firstName =
     userProfile?.displayName?.split(" ")[0] ||
@@ -246,6 +297,7 @@ export default function DashboardPage() {
                   Settings
                 </Link>
               </Button>
+
               <Button
                 onClick={handleLogout}
                 variant="ghost"
@@ -259,7 +311,7 @@ export default function DashboardPage() {
 
           {/* Stats Cards */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {stats.map((stat, index) => (
+            {displayStats.map((stat, index) => (
               <Card
                 key={index}
                 className="group hover:shadow-xl transition-all duration-500 border-0 shadow-lg bg-white/80 backdrop-blur-sm hover:scale-105"
@@ -368,56 +420,83 @@ export default function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {recentActivity.map((activity, index) => (
-                      <div
-                        key={index}
-                        className="flex items-start space-x-4 p-4 rounded-xl hover:bg-gray-50/80 transition-colors duration-300 group"
-                      >
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            activity.status === "completed"
-                              ? "bg-emerald-100"
-                              : "bg-blue-100"
-                          } group-hover:scale-110 transition-transform duration-300`}
-                        >
-                          <activity.icon
-                            className={`w-5 h-5 ${
-                              activity.status === "completed"
-                                ? "text-emerald-600"
-                                : "text-blue-600"
-                            }`}
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition-colors duration-300">
-                            {activity.title}
-                          </h4>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {activity.description}
+                  <div className="max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400 transition-colors">
+                    <div className="space-y-4 pr-2">
+                      {recentActivity.length > 0 ? (
+                        recentActivity.map((activity, index) => {
+                          const ActivityIcon = getActivityIcon(activity.type);
+                          const status = getActivityStatus(activity.type);
+
+                          return (
+                            <div
+                              key={activity.id || index}
+                              className="flex items-start space-x-4 p-4 rounded-xl hover:bg-gray-50/80 transition-colors duration-300 group"
+                            >
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                                  status === "deleted"
+                                    ? "bg-red-100"
+                                    : status === "completed"
+                                    ? "bg-emerald-100"
+                                    : "bg-blue-100"
+                                } group-hover:scale-110 transition-transform duration-300`}
+                              >
+                                <ActivityIcon
+                                  className={`w-5 h-5 ${
+                                    status === "deleted"
+                                      ? "text-red-600"
+                                      : status === "completed"
+                                      ? "text-emerald-600"
+                                      : "text-blue-600"
+                                  }`}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition-colors duration-300">
+                                  {activity.title}
+                                </h4>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  {activity.description}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-2">
+                                  {formatActivityTime(activity.timestamp)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant={
+                                  status === "deleted"
+                                    ? "destructive"
+                                    : status === "completed"
+                                    ? "default"
+                                    : "secondary"
+                                }
+                                className={
+                                  status === "deleted"
+                                    ? "bg-red-100 text-red-700 border-red-200"
+                                    : status === "completed"
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-blue-100 text-blue-700"
+                                }
+                              >
+                                {status === "deleted"
+                                  ? "Deleted"
+                                  : status === "completed"
+                                  ? "Complete"
+                                  : "In Progress"}
+                              </Badge>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                          <p>No recent activity</p>
+                          <p className="text-xs mt-1">
+                            Activity will appear here as you use the app
                           </p>
-                          <p className="text-xs text-gray-500 mt-2">
-                            {activity.time}
-                          </p>
                         </div>
-                        <Badge
-                          variant={
-                            activity.status === "completed"
-                              ? "default"
-                              : "secondary"
-                          }
-                          className={
-                            activity.status === "completed"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-blue-100 text-blue-700"
-                          }
-                        >
-                          {activity.status === "completed"
-                            ? "Complete"
-                            : "In Progress"}
-                        </Badge>
-                      </div>
-                    ))}
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>

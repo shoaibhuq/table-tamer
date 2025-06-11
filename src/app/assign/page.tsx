@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,8 +47,41 @@ import {
   Edit3,
 } from "lucide-react";
 import { TableEditDialog } from "@/components/ui/table-edit-dialog";
+import { GuestEditDialog } from "@/components/ui/guest-edit-dialog";
 
 type TableWithGuests = Table & { guests: Guest[] };
+
+interface ProtectedLinkProps {
+  href: string;
+  hasUnsavedChanges: boolean;
+  children: React.ReactNode;
+  className?: string;
+}
+
+function ProtectedLink({
+  href,
+  hasUnsavedChanges,
+  children,
+  className,
+}: ProtectedLinkProps) {
+  const handleClick = (e: React.MouseEvent) => {
+    if (hasUnsavedChanges) {
+      e.preventDefault();
+      const confirmed = window.confirm(
+        "You have unsaved changes. Are you sure you want to leave?\n\nClick 'OK' to leave without saving, or 'Cancel' to stay and save your changes."
+      );
+      if (confirmed) {
+        window.location.href = href;
+      }
+    }
+  };
+
+  return (
+    <Link href={href} className={className} onClick={handleClick}>
+      {children}
+    </Link>
+  );
+}
 
 interface DraggableGuestProps {
   guest: Guest;
@@ -57,6 +90,7 @@ interface DraggableGuestProps {
   onUnassign?: (guestId: string) => void;
   onSelect?: (guestId: string, isSelected: boolean) => void;
   onClick?: (guestId: string) => void;
+  onEdit?: (guest: Guest) => void;
 }
 
 function DraggableGuest({
@@ -66,6 +100,7 @@ function DraggableGuest({
   onUnassign,
   onSelect,
   onClick,
+  onEdit,
 }: DraggableGuestProps) {
   const { setNodeRef, transform, transition, listeners, attributes } =
     useSortable({
@@ -142,6 +177,18 @@ function DraggableGuest({
               Selected
             </div>
           )}
+          {onEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(guest);
+              }}
+              className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+              title="Edit guest"
+            >
+              <Edit3 className="w-3 h-3" />
+            </button>
+          )}
           {onUnassign && (
             <button
               onClick={(e) => {
@@ -171,6 +218,7 @@ interface DroppableTableProps {
   onRemove?: (tableId: string) => void;
   onAssignSelected?: (tableId: string) => void;
   onEditTable?: (table: TableWithGuests) => void;
+  onEditGuest?: (guest: Guest) => void;
 }
 
 function DroppableTable({
@@ -181,6 +229,7 @@ function DroppableTable({
   onRemove,
   onAssignSelected,
   onEditTable,
+  onEditGuest,
 }: DroppableTableProps) {
   const { setNodeRef, isOver } = useDroppable({ id: `table-${table.id}` });
 
@@ -277,6 +326,7 @@ function DroppableTable({
                 key={guest.id}
                 guest={guest}
                 onUnassign={onUnassign}
+                onEdit={onEditGuest}
               />
             ))}
           </SortableContext>
@@ -313,6 +363,7 @@ interface UnassignedGuestsAreaProps {
   selectedGuests: Set<string>;
   onSelectGuest: (guestId: string, isSelected: boolean) => void;
   onClickGuest?: (guestId: string) => void;
+  onEditGuest?: (guest: Guest) => void;
 }
 
 function UnassignedGuestsArea({
@@ -320,6 +371,7 @@ function UnassignedGuestsArea({
   selectedGuests,
   onSelectGuest,
   onClickGuest,
+  onEditGuest,
 }: UnassignedGuestsAreaProps) {
   const { setNodeRef, isOver } = useDroppable({ id: "unassigned" });
 
@@ -351,6 +403,7 @@ function UnassignedGuestsArea({
             isSelected={selectedGuests.has(guest.id)}
             onSelect={onSelectGuest}
             onClick={onClickGuest}
+            onEdit={onEditGuest}
           />
         ))}
       </SortableContext>
@@ -367,6 +420,7 @@ function UnassignedGuestsArea({
 function AssignPageContent() {
   const { user, userProfile, loading: authLoading } = useAuth();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const eventIdParam = searchParams.get("eventId");
 
   const [loading, setLoading] = useState(false);
@@ -376,6 +430,7 @@ function AssignPageContent() {
   const [editingTable, setEditingTable] = useState<TableWithGuests | null>(
     null
   );
+  const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
   const [numTables, setNumTables] = useState(8);
 
   // Original state from database
@@ -447,6 +502,59 @@ function AssignPageContent() {
       fetchTablesAndGuests();
     }
   }, [currentEventId, user, authLoading, fetchTablesAndGuests]);
+
+  // Navigation protection - prevent leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue =
+          "You have unsaved changes. Are you sure you want to leave?";
+        return "You have unsaved changes. Are you sure you want to leave?";
+      }
+    };
+
+    const handleRouteChange = () => {
+      if (hasUnsavedChanges) {
+        const confirmed = window.confirm(
+          "You have unsaved changes. Are you sure you want to leave?\n\nClick 'OK' to leave without saving, or 'Cancel' to stay and save your changes."
+        );
+        if (!confirmed) {
+          throw new Error("Route change aborted by user");
+        }
+      }
+    };
+
+    // Handle browser navigation (back, forward, close tab, refresh)
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Handle in-app navigation
+    const originalPush = router.push;
+    const originalReplace = router.replace;
+    const originalBack = router.back;
+
+    router.push = (...args: Parameters<typeof router.push>) => {
+      handleRouteChange();
+      return originalPush.apply(router, args);
+    };
+
+    router.replace = (...args: Parameters<typeof router.replace>) => {
+      handleRouteChange();
+      return originalReplace.apply(router, args);
+    };
+
+    router.back = () => {
+      handleRouteChange();
+      return originalBack.apply(router);
+    };
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      router.push = originalPush;
+      router.replace = originalReplace;
+      router.back = originalBack;
+    };
+  }, [hasUnsavedChanges, router]);
 
   const handleCreateTables = () => {
     if (numTables < 1 || numTables > 50) {
@@ -1064,6 +1172,52 @@ function AssignPageContent() {
     handleSelectGuest(guestId, !isCurrentlySelected);
   };
 
+  const handleEditGuest = (guest: Guest) => {
+    setEditingGuest(guest);
+  };
+
+  const handleSaveGuest = async (guestId: string, updates: Partial<Guest>) => {
+    try {
+      setSaving(true);
+      const response = (await authenticatedJsonFetch(`/api/guests/${guestId}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      })) as { success: boolean; error?: string };
+
+      if (!response.success) {
+        throw new Error(response.error || "Failed to update guest");
+      }
+
+      // Update local state
+      setTables((prevTables) =>
+        prevTables.map((table) => ({
+          ...table,
+          guests: table.guests.map((guest) =>
+            guest.id === guestId ? { ...guest, ...updates } : guest
+          ),
+        }))
+      );
+
+      setUnassignedGuests((prevGuests) =>
+        prevGuests.map((guest) =>
+          guest.id === guestId ? { ...guest, ...updates } : guest
+        )
+      );
+
+      setSuccess("Guest updated successfully!");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (error) {
+      console.error("Failed to update guest:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to update guest"
+      );
+      setTimeout(() => setError(null), 5000);
+      throw error; // Re-throw to let dialog handle it
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSelectAllUnassigned = () => {
     const currentFilteredGuests = filteredUnassignedGuests;
     if (selectedGuests.size === currentFilteredGuests.length) {
@@ -1491,9 +1645,9 @@ function AssignPageContent() {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
             <p className="text-gray-600 mb-4">Please sign in to continue.</p>
-            <Link href="/events">
+            <ProtectedLink href="/events" hasUnsavedChanges={false}>
               <Button>Go to Events</Button>
-            </Link>
+            </ProtectedLink>
           </div>
         </div>
       </AppLayout>
@@ -1508,13 +1662,14 @@ function AssignPageContent() {
           <div className="mb-8">
             {/* Back Navigation */}
             {currentEventId && (
-              <Link
+              <ProtectedLink
                 href={`/events/${currentEventId}`}
+                hasUnsavedChanges={hasUnsavedChanges}
                 className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-6 text-lg font-medium"
               >
                 <ArrowLeft className="w-5 h-5 mr-2" />
                 Back to Event Details
-              </Link>
+              </ProtectedLink>
             )}
 
             <div className="text-center">
@@ -1548,12 +1703,18 @@ function AssignPageContent() {
                     </p>
                   </div>
                   <div className="space-y-3">
-                    <Link href="/events">
+                    <ProtectedLink
+                      href="/events"
+                      hasUnsavedChanges={hasUnsavedChanges}
+                    >
                       <Button className="mr-3">Go to Events</Button>
-                    </Link>
-                    <Link href="/">
+                    </ProtectedLink>
+                    <ProtectedLink
+                      href="/"
+                      hasUnsavedChanges={hasUnsavedChanges}
+                    >
                       <Button variant="outline">Import Guests First</Button>
-                    </Link>
+                    </ProtectedLink>
                   </div>
                 </div>
               </CardContent>
@@ -1587,8 +1748,7 @@ function AssignPageContent() {
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                           <span className="text-sm text-blue-800 font-medium">
-                            You have unsaved changes (efficient batch save
-                            enabled)
+                            You have unsaved changes
                           </span>
                         </div>
                         <div className="flex gap-2">
@@ -1807,6 +1967,7 @@ function AssignPageContent() {
                             selectedGuests={selectedGuests}
                             onSelectGuest={handleSelectGuest}
                             onClickGuest={handleClickGuest}
+                            onEditGuest={handleEditGuest}
                           />
                         </div>
                       </CardContent>
@@ -1849,6 +2010,7 @@ function AssignPageContent() {
                           }}
                           onAssignSelected={handleAssignSelectedToTable}
                           onEditTable={setEditingTable}
+                          onEditGuest={handleEditGuest}
                         />
                       ))}
                     </div>
@@ -1912,6 +2074,14 @@ function AssignPageContent() {
               onSave={handleUpdateTable}
             />
           )}
+
+          {/* Guest Edit Dialog */}
+          <GuestEditDialog
+            guest={editingGuest}
+            open={!!editingGuest}
+            onOpenChange={(open) => !open && setEditingGuest(null)}
+            onSave={handleSaveGuest}
+          />
         </div>
       </div>
     </AppLayout>

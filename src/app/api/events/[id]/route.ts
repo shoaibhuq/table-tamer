@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eventService, guestService, tableService } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
+import { logEventDeleted } from "@/lib/analytics";
 
 export async function GET(
   req: NextRequest,
@@ -93,6 +94,13 @@ export async function DELETE(
         { success: false, error: "Event not found" },
         { status: 404 }
       );
+    }
+
+    // Log analytics before deletion
+    try {
+      await logEventDeleted(userId, eventId, event.name);
+    } catch (error) {
+      console.error("Failed to log event deletion analytics:", error);
     }
 
     // Delete the event (this will cascade delete guests and tables)

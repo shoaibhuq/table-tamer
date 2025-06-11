@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eventService, guestService } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
+import { AnalyticsService } from "@/lib/analytics";
 
 export async function DELETE(
   request: NextRequest,
@@ -29,6 +30,26 @@ export async function DELETE(
 
     // Use the optimized deleteByEvent method for much faster performance
     const removedCount = await guestService.deleteByEvent(userId, eventId);
+
+    // Log analytics for guest removal
+    if (removedCount > 0) {
+      try {
+        await AnalyticsService.logActivity(userId, {
+          type: "guest_deleted",
+          title: `Removed all guests (${removedCount})`,
+          description: `Cleared all ${removedCount} guests from "${event.name}"`,
+          eventId,
+          eventName: event.name,
+          metadata: {
+            action: "delete_all",
+            resource: "guests",
+            count: removedCount,
+          },
+        });
+      } catch (error) {
+        console.error("Failed to log guest removal analytics:", error);
+      }
+    }
 
     if (removedCount === 0) {
       return NextResponse.json({

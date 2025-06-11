@@ -86,6 +86,17 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Mask phone number for privacy (show only last 4 digits)
+      const getMaskedPhoneNumber = (
+        phoneNumber: string | undefined
+      ): string | null => {
+        if (!phoneNumber || phoneNumber.length < 4) return phoneNumber || null;
+        const digitsOnly = phoneNumber.replace(/\D/g, "");
+        if (digitsOnly.length < 4) return phoneNumber;
+        const lastFour = digitsOnly.slice(-4);
+        return `•••• ${lastFour}`;
+      };
+
       return NextResponse.json({
         success: true,
         guest: {
@@ -93,8 +104,8 @@ export async function GET(req: NextRequest) {
           name: getGuestFullName(guest), // Use helper function for display name
           firstName: guest.firstName,
           lastName: guest.lastName,
-          phoneNumber: guest.phoneNumber,
-          email: guest.email,
+          phoneNumber: getMaskedPhoneNumber(guest.phoneNumber),
+          email: guest.email, // Note: Not showing email for privacy
           table,
         },
       });

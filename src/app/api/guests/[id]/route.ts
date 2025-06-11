@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guestService } from "@/lib/firestore";
+import { guestService, Guest } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
 
 export async function PATCH(
@@ -8,7 +8,7 @@ export async function PATCH(
 ) {
   try {
     const { id: guestId } = await params;
-    const { name, phoneNumber } = await req.json();
+    const updates = await req.json();
 
     // Verify authentication
     const userId = await verifyAuthToken(req);
@@ -19,17 +19,55 @@ export async function PATCH(
       );
     }
 
-    if (!name || name.trim() === "") {
+    // Validate that at least firstName or lastName is provided (or legacy name field)
+    const hasName =
+      (updates.firstName && updates.firstName.trim()) ||
+      (updates.lastName && updates.lastName.trim()) ||
+      (updates.name && updates.name.trim());
+
+    if (!hasName) {
       return NextResponse.json(
-        { success: false, error: "Guest name is required" },
+        {
+          success: false,
+          error: "At least first name or last name is required",
+        },
         { status: 400 }
       );
     }
 
-    await guestService.update(userId, guestId, {
-      name: name.trim(),
-      phoneNumber: phoneNumber ? phoneNumber.trim() : null,
-    });
+    // Clean up the updates object
+    const cleanUpdates: Partial<Guest> = {};
+
+    // Handle name fields
+    if (updates.firstName !== undefined) {
+      cleanUpdates.firstName = updates.firstName?.trim() || undefined;
+    }
+    if (updates.lastName !== undefined) {
+      cleanUpdates.lastName = updates.lastName?.trim() || undefined;
+    }
+    if (updates.name !== undefined) {
+      cleanUpdates.name = updates.name?.trim() || undefined;
+    }
+
+    // Handle contact fields
+    if (updates.phoneNumber !== undefined) {
+      cleanUpdates.phoneNumber = updates.phoneNumber?.trim() || undefined;
+    }
+    if (updates.email !== undefined) {
+      cleanUpdates.email = updates.email?.trim() || undefined;
+    }
+
+    // Handle notes
+    if (updates.notes !== undefined) {
+      cleanUpdates.notes = updates.notes?.trim() || undefined;
+    }
+
+    // Handle table assignment
+    if (updates.tableId !== undefined) {
+      cleanUpdates.tableId = updates.tableId;
+    }
+
+    await guestService.update(userId, guestId, cleanUpdates);
 
     return NextResponse.json({
       success: true,

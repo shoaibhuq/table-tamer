@@ -539,15 +539,23 @@ export function getGuestFullName(guest: Guest): string {
   return guest.name || "";
 }
 
+// Helper function to mask phone number showing only last 4 digits
+function getMaskedPhoneNumber(phoneNumber: string): string {
+  if (!phoneNumber || phoneNumber.length < 4) return phoneNumber;
+  // Remove non-digits to get the pure number
+  const digitsOnly = phoneNumber.replace(/\D/g, "");
+  if (digitsOnly.length < 4) return phoneNumber;
+  // Return last 4 digits with dots
+  const lastFour = digitsOnly.slice(-4);
+  return `•••• ${lastFour}`;
+}
+
 // Helper function to get display name for search/autocomplete
 export function getGuestDisplayName(guest: Guest): string {
   const fullName = getGuestFullName(guest);
-  if (guest.email && guest.phoneNumber) {
-    return `${fullName} (${guest.email}, ${guest.phoneNumber})`;
-  } else if (guest.email) {
-    return `${fullName} (${guest.email})`;
-  } else if (guest.phoneNumber) {
-    return `${fullName} (${guest.phoneNumber})`;
+  if (guest.phoneNumber) {
+    const maskedPhone = getMaskedPhoneNumber(guest.phoneNumber);
+    return `${fullName} (${maskedPhone})`;
   }
   return fullName;
 }

@@ -3,6 +3,7 @@ import { tableService, guestService, Guest, Table } from "@/lib/firestore";
 import { verifyAuthToken } from "@/lib/firebase-admin";
 import { getDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { logTablesCreated, logTablesDeleted } from "@/lib/analytics";
 
 export async function GET(req: NextRequest) {
   try {
@@ -208,6 +209,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Log analytics
+    if (numTables > 0) {
+      try {
+        // Get event name for analytics
+        const eventDoc = await getDoc(doc(db, "events", eventId));
+        const eventName = eventDoc.exists()
+          ? eventDoc.data().name
+          : "Unknown Event";
+        await logTablesCreated(userId, eventId, eventName, numTables);
+      } catch (error) {
+        console.error("Failed to log tables creation:", error);
+      }
+    }
+
     return NextResponse.json({ success: true, tables });
   } catch (error) {
     console.error("Error creating tables:", error);
@@ -262,6 +277,62 @@ export async function PATCH(req: NextRequest) {
     console.error("Error updating guest table assignment:", error);
     return NextResponse.json(
       { success: false, error: "Failed to update table assignment" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const userId = await verifyAuthToken(req);
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const { tableIds, eventId } = await req.json();
+
+    if (!Array.isArray(tableIds) || tableIds.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Table IDs array is required" },
+        { status: 400 }
+      );
+    }
+
+    // Get event info for analytics
+    let eventName = "Unknown Event";
+    if (eventId) {
+      try {
+        const eventDoc = await getDoc(doc(db, "events", eventId));
+        eventName = eventDoc.exists() ? eventDoc.data().name : "Unknown Event";
+      } catch (error) {
+        console.error("Failed to get event info for analytics:", error);
+      }
+    }
+
+    await tableService.delete(userId, tableIds);
+
+    // Log analytics
+    if (eventId) {
+      try {
+        await logTablesDeleted(userId, eventId, eventName, tableIds.length);
+      } catch (error) {
+        console.error("Failed to log tables deletion:", error);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `${tableIds.length} table${
+        tableIds.length > 1 ? "s" : ""
+      } deleted successfully`,
+    });
+  } catch (error) {
+    console.error("Error deleting tables:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to delete tables" },
       { status: 500 }
     );
   }
